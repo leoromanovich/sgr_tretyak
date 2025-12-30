@@ -1,0 +1,9 @@
+llm:
+  api_key: "dummy"                      # твой ключ для локального прокси
+  base_url: "http://localhost:8000/v1"   # твой openai-совместимый сервер
+#  model: "models/openai/gpt-oss-20b"
+  model: "models/Qwen/Qwen3-14B-FP8"
+  max_tokens: 32768
+  temperature: 0.2
+
+search: null

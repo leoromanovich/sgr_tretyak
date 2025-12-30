@@ -1,0 +1,214 @@
+from typing import Optional, List, Literal
+from pydantic import BaseModel, Field
+
+
+class NoteMetadata(BaseModel):
+    note_id: str = Field(
+        ...,
+        description="Уникальный идентификатор заметки (обычно имя файла без расширения)",
+    )
+    primary_year: Optional[int] = Field(
+        None,
+        description="Ключевой год эпизода, если можно определить (например, 1812)",
+    )
+    year_start: Optional[int] = Field(
+        None,
+        description="Начало диапазона лет, если в заметке описан период",
+    )
+    year_end: Optional[int] = Field(
+        None,
+        description="Конец диапазона лет, если в заметке описан период",
+    )
+    location: Optional[str] = Field(
+        None,
+        description="Основное место действия (город, регион), если явно указано",
+    )
+    topic: Optional[str] = Field(
+        None,
+        description="Краткое текстовое описание, о чём эта заметка",
+    )
+    reliability: float = Field(
+        0.0,
+        ge=0.0,
+        le=1.0,
+        description="Насколько уверенно определены годы и контекст (0–1)",
+    )
+
+class NoteMetadataResponse(BaseModel):
+    metadata: NoteMetadata
+
+
+class PersonSnippetEvidence(BaseModel):
+    snippet: str = Field(
+        ..., description="Короткий фрагмент текста, где упоминается персона"
+    )
+    reasoning: str = Field(
+        ...,
+        description="Краткое объяснение, почему это упоминание интерпретируется как человек",
+    )
+
+
+class PersonLocal(BaseModel):
+    note_id: str = Field(..., description="ID заметки, где встречается персона")
+    local_person_id: str = Field(
+        ..., description="Локальный ID персоны внутри этой заметки (например, p1, p2)"
+    )
+    surface_forms: List[str] = Field(
+        ...,
+        description='Разные формы имени, встречающиеся в тексте ("И.И. Иванов", "Иван Иванович", "Иванов")',
+    )
+    canonical_name_in_note: str = Field(
+        ...,
+        description='Наиболее полная/удобная форма имени для этой заметки (например, "Иван Иванович Иванов")',
+    )
+    is_person: bool = Field(
+        ...,
+        description="true, если модель уверена, что это человек, а не организация/место",
+    )
+    confidence: float = Field(
+        ...,
+        ge=0.0,
+        le=1.0,
+        description="Уверенность, что это отдельная историческая персона (0–1)",
+    )
+    note_year_context: Optional[int] = Field(
+        None,
+        description="Основной год, с которым связан этот человек в контексте данной заметки (если можно вывести)",
+    )
+    note_year_source: Literal["inline", "note_metadata", "unknown"] = Field(
+        "unknown",
+        description=(
+            "Источник года: inline — год явно рядом с упоминанием; "
+            "note_metadata — взят из метаданных заметки; unknown — определить нельзя"
+        ),
+    )
+    snippet_evidence: List[PersonSnippetEvidence] = Field(
+        default_factory=list,
+        description="Набор фрагментов текста с объяснением, почему это человек",
+    )
+
+
+class PersonExtractionResponse(BaseModel):
+    note_id: str
+    people: List[PersonLocal]
+
+
+class NameParts(BaseModel):
+    last_name: Optional[str] = Field(None, description="Фамилия, если можно выделить")
+    first_name: Optional[str] = Field(None, description="Имя, если можно выделить")
+    patronymic: Optional[str] = Field(None, description="Отчество, если есть")
+
+
+class AbbreviationLink(BaseModel):
+    from_form: str = Field(..., description="Короткая/сокращённая форма имени (например, 'П.Д. Корин')")
+    to_form: str = Field(..., description="Более полная форма имени (например, 'Павел Дмитриевич Корин')")
+    confidence: float = Field(..., ge=0.0, le=1.0, description="Уверенность, что это одна и та же персона (0–1)")
+    reasoning: str = Field(..., description="Краткое объяснение, почему это соответствие принято")
+
+
+class PersonLocalNormalized(PersonLocal):
+    normalized_full_name: Optional[str] = Field(
+        None,
+        description=(
+            "Максимально полное ФИО, которое можно собрать по этой заметке "
+            "(например, 'Павел Дмитриевич Корин'). Если недостаточно данных — null."
+        ),
+        )
+    name_parts: NameParts = Field(
+        default_factory=NameParts,
+        description="Разложение имени на части, если возможно"
+        )
+    abbreviation_links: List[AbbreviationLink] = Field(
+        default_factory=list,
+        description=(
+            "Список связей между сокращёнными и полными формами имени, "
+            "актуальных для этой персоны в этой заметке."
+        ),
+        )
+
+
+class PersonNormalizationResponse(BaseModel):
+    note_id: str
+    people: List[PersonLocalNormalized]
+
+
+class PersonCandidate(BaseModel):
+    """
+    Кандидат-персона в глобальном пуле, одна запись = один человек в одной заметке.
+    """
+    candidate_id: str = Field(..., description="Глобальный ID кандидата, например '8332:p1'")
+    note_id: str = Field(..., description="ID заметки (имя файла без расширения)")
+    local_person_id: str = Field(..., description="Локальный ID из PersonLocal/PersonLocalNormalized")
+
+    normalized_full_name: Optional[str] = Field(
+        None,
+        description="Максимально полное имя из нормализованной персоны (может быть None)",
+        )
+    canonical_name_in_note: str = Field(
+        ...,
+        description="canonical_name_in_note из нормализованной персоны",
+        )
+    surface_forms: List[str] = Field(
+        default_factory=list,
+        description="Все формы имени из нормализованной персоны",
+        )
+    name_parts: "NameParts" = Field(
+        default_factory=lambda: NameParts(),
+        description="Фамилия/имя/отчество, если выделены",
+        )
+    note_year_context: Optional[int] = Field(
+        None,
+        description="Год из контекста заметки для этого человека (может быть None)",
+        )
+    person_confidence: float = Field(
+        ...,
+        ge=0.0,
+        le=1.0,
+        description="Уверенность из PersonLocal/PersonLocalNormalized",
+        )
+    is_person: bool = Field(
+        ...,
+        description="Копия is_person для фильтрации",
+        )
+    snippet_preview: Optional[str] = Field(
+        None,
+        description="Один короткий snippet для понимания контекста (можно взять первый)",
+        )
+
+
+class EpisodeRef(BaseModel):
+    note_id: str
+    local_person_id: str
+    note_year_context: Optional[int] = None
+    snippet_preview: Optional[str] = None
+
+
+class GlobalPerson(BaseModel):
+    """
+    Результат кластеризации: одна сущность = один человек (по нашему мнению).
+    """
+    global_person_id: str = Field(..., description="Глобальный ID персоны, например 'gp_0001'")
+    canonical_full_name: str = Field(..., description="Выбранное каноническое имя (ФИО)")
+    year_key: Optional[str] = Field(
+        None,
+        description="Ключ для года/периода, например '1812' или '1812–1815'",
+        )
+    disambiguation_key: Optional[str] = Field(
+        None,
+        description="Краткая пометка для различения тёзок (роль, место и т.п.)",
+        )
+    members: List[str] = Field(
+        ...,
+        description="Список candidate_id, входящих в этот кластер",
+        )
+    episodes: List[EpisodeRef] = Field(
+        default_factory=list,
+        description="Эпизоды, откуда мы знаем про этого человека",
+        )
+
+class PersonMatchDecision(BaseModel):
+    left_candidate_id: str
+    right_candidate_id: str
+    relation: Literal["same_person", "different_person", "unknown"]
+    confidence: float = Field(..., ge=0.0, le=1.0)
+    reasoning: str

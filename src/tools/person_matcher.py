@@ -1,0 +1,91 @@
+from typing import Dict, Any
+from ..llm_client import chat_sgr_parse
+from ..llm_prompts import add_no_think
+from ..models import PersonCandidate, PersonMatchDecision
+
+
+MATCH_SCHEMA: Dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "left_candidate_id": {"type": "string"},
+        "right_candidate_id": {"type": "string"},
+        "relation": {
+            "type": "string",
+            "enum": ["same_person", "different_person", "unknown"],
+            },
+        "confidence": {
+            "type": "number",
+            "minimum": 0.0,
+            "maximum": 1.0,
+            },
+        "reasoning": {"type": "string"},
+        },
+    "required": ["left_candidate_id", "right_candidate_id", "relation", "confidence", "reasoning"],
+    "additionalProperties": False,
+    }
+
+
+SYSTEM_PROMPT = """
+Ты анализируешь двух кандидатов на одну и ту же историческую персону.
+
+Тебе даны:
+- normalized_full_name (если есть),
+- canonical_name_in_note,
+- surface_forms,
+- разложение имени по частям (фамилия, имя, отчество),
+- год из контекста заметки (если есть),
+- confidence.
+
+Укажи отношение:
+1. same_person — если это однозначно один человек.
+2. different_person — если они точно разные.
+3. unknown — если данных недостаточно (лучше быть осторожным).
+
+Правила:
+- НЕ использовать внешние знания.
+- Основываться только на данных кандидатов.
+- Если normalized_full_name совпадает полностью — скорее всего same_person.
+- Если normalized_full_name отсутствует, но совпадает фамилия, имя и отчество — same_person.
+- Если есть совпадение фамилии и имени, но отчество различается — different_person.
+- Если нет имени, но совпадают фамилия + отчество, а год близкий — возможно same_person.
+- Если расходятся более двух ключевых параметров — different_person.
+- Если данных мало или неоднозначно — unknown.
+
+Верни строго JSON по схеме.
+"""
+
+
+def match_candidates(c1: PersonCandidate, c2: PersonCandidate) -> PersonMatchDecision:
+    user_content = f"""
+Сравни двух кандидатов:
+
+[LEFT]
+candidate_id: {c1.candidate_id}
+normalized_full_name: {c1.normalized_full_name}
+canonical_name: {c1.canonical_name_in_note}
+name_parts: {c1.name_parts}
+year: {c1.note_year_context}
+confidence: {c1.person_confidence}
+
+[RIGHT]
+candidate_id: {c2.candidate_id}
+normalized_full_name: {c2.normalized_full_name}
+canonical_name: {c2.canonical_name_in_note}
+name_parts: {c2.name_parts}
+year: {c2.note_year_context}
+confidence: {c2.person_confidence}
+/no_think
+"""
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": add_no_think(user_content)},
+        ]
+
+    return chat_sgr_parse(
+        messages=messages,
+        schema_name="person_matcher",
+        schema=MATCH_SCHEMA,
+        model_cls=PersonMatchDecision,
+        temperature=0.0,
+        max_tokens=None,
+        )

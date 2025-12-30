@@ -1,0 +1,16 @@
+[project]
+name = "sgr-tretyak"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "markdown-it-py>=4.0.0",
+    "openai>=2.14.0",
+    "orjson>=3.11.5",
+    "pydantic>=2.12.5",
+    "pydantic-settings>=2.12.0",
+    "python-frontmatter>=1.1.0",
+    "rich>=14.2.0",
+    "typer[all]>=0.21.0",
+]
