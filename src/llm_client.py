@@ -1,18 +1,37 @@
+import asyncio
 from typing import Any, Dict, List, Optional, Type, TypeVar
-from openai import OpenAI
+from openai import OpenAI, AsyncOpenAI
 from pydantic import BaseModel, ValidationError
 
 from src.config import settings
+
+LLM_CONCURRENCY_LIMIT = 16
 
 client = OpenAI(
     base_url=settings.openai_base_url,
     api_key=settings.openai_api_key,
     )
+async_client = AsyncOpenAI(
+    base_url=settings.openai_base_url,
+    api_key=settings.openai_api_key,
+    )
+_llm_semaphore = asyncio.Semaphore(LLM_CONCURRENCY_LIMIT)
 
 T = TypeVar("T", bound=BaseModel)
 
 
-def chat_raw(
+def _run_sync(coro):
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+    raise RuntimeError(
+        "Нельзя вызывать синхронный LLM-клиент внутри активного event loop; "
+        "используй chat_raw_async/chat_sgr_parse_async"
+        )
+
+
+async def chat_raw_async(
     messages: List[Dict[str, Any]],
     response_format: Optional[Dict[str, Any]] = None,
     tools: Optional[List[Dict[str, Any]]] = None,
@@ -37,7 +56,8 @@ def chat_raw(
     if max_tokens is not None:
         kwargs["max_tokens"] = max_tokens
 
-    resp = client.chat.completions.create(**kwargs)
+    async with _llm_semaphore:
+        resp = await async_client.chat.completions.create(**kwargs)
     message = resp.choices[0].message
 
     return {
@@ -46,7 +66,30 @@ def chat_raw(
         }
 
 
-def chat_sgr_parse(
+def chat_raw(
+    messages: List[Dict[str, Any]],
+    response_format: Optional[Dict[str, Any]] = None,
+    tools: Optional[List[Dict[str, Any]]] = None,
+    tool_choice: Optional[str] = None,
+    temperature: float = 0.0,
+    max_tokens: Optional[int] = None,
+    ) -> Dict[str, Any]:
+    """
+    Синхронная обёртка поверх chat_raw_async для обратной совместимости.
+    """
+    return _run_sync(
+        chat_raw_async(
+            messages=messages,
+            response_format=response_format,
+            tools=tools,
+            tool_choice=tool_choice,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            )
+        )
+
+
+async def chat_sgr_parse_async(
     messages: List[Dict[str, Any]],
     schema_name: str,
     schema: Dict[str, Any],
@@ -67,7 +110,7 @@ def chat_sgr_parse(
             },
         }
 
-    resp = chat_raw(
+    resp = await chat_raw_async(
         messages=messages,
         response_format=response_format,
         temperature=temperature,
@@ -89,3 +132,26 @@ def chat_sgr_parse(
         return model_cls.model_validate(data)
     except ValidationError as e:
         raise RuntimeError(f"JSON не прошёл валидацию Pydantic: {e}\nData: {data}")
+
+
+def chat_sgr_parse(
+    messages: List[Dict[str, Any]],
+    schema_name: str,
+    schema: Dict[str, Any],
+    model_cls: Type[T],
+    temperature: float = 0.0,
+    max_tokens: Optional[int] = None,
+    ) -> T:
+    """
+    Синхронная обёртка поверх chat_sgr_parse_async.
+    """
+    return _run_sync(
+        chat_sgr_parse_async(
+            messages=messages,
+            schema_name=schema_name,
+            schema=schema,
+            model_cls=model_cls,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            )
+        )

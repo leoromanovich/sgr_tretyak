@@ -1,10 +1,11 @@
 from typing import Dict, Any
 from pathlib import Path
+import asyncio
 import json
 
 import frontmatter
 
-from ..llm_client import chat_sgr_parse
+from ..llm_client import chat_sgr_parse, chat_sgr_parse_async
 from ..llm_prompts import add_no_think
 from ..models import (
     NoteMetadata,
@@ -12,8 +13,11 @@ from ..models import (
     PersonExtractionResponse,
     PersonNormalizationResponse,
     )
-from .note_metadata import extract_note_metadata_from_file
-from .people_extractor import extract_people_from_text
+from .note_metadata import extract_note_metadata_from_file, extract_note_metadata_from_file_async
+from .people_extractor import (
+    extract_people_from_text,
+    extract_people_from_text_async,
+    )
 
 
 # JSON Schema для нормализации имён
@@ -145,15 +149,12 @@ SYSTEM_PROMPT = """
 """
 
 
-def normalize_people_in_text(
+def _build_normalizer_messages(
     note_id: str,
     text: str,
     people_extraction: PersonExtractionResponse,
     metadata: NoteMetadata,
-    ) -> PersonNormalizationResponse:
-    """
-    Вызывает LLM для нормализации имён внутри одной заметки.
-    """
+    ) -> list[Dict[str, Any]]:
     metadata_str = json.dumps(metadata.model_dump(), ensure_ascii=False, indent=2)
     people_str = json.dumps(people_extraction.model_dump(), ensure_ascii=False, indent=2)
 
@@ -170,18 +171,42 @@ def normalize_people_in_text(
         f"{text}"
     )
 
-    messages = [
+    return [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": add_no_think(user_content)},
         ]
 
+async def normalize_people_in_text_async(
+    note_id: str,
+    text: str,
+    people_extraction: PersonExtractionResponse,
+    metadata: NoteMetadata,
+    ) -> PersonNormalizationResponse:
+    messages = _build_normalizer_messages(note_id, text, people_extraction, metadata)
+    return await chat_sgr_parse_async(
+        messages=messages,
+        schema_name="name_normalizer",
+        schema=NAME_NORMALIZER_SCHEMA,
+        model_cls=PersonNormalizationResponse,
+        temperature=0.0,
+        max_tokens=None,
+        )
+
+
+def normalize_people_in_text(
+    note_id: str,
+    text: str,
+    people_extraction: PersonExtractionResponse,
+    metadata: NoteMetadata,
+    ) -> PersonNormalizationResponse:
+    messages = _build_normalizer_messages(note_id, text, people_extraction, metadata)
     return chat_sgr_parse(
         messages=messages,
         schema_name="name_normalizer",
         schema=NAME_NORMALIZER_SCHEMA,
         model_cls=PersonNormalizationResponse,
         temperature=0.0,
-        max_tokens=None,  # не режем по длине
+        max_tokens=None,
         )
 
 
@@ -206,6 +231,31 @@ def normalize_people_in_file(path: Path) -> PersonNormalizationResponse:
 
     # 4. нормализация
     return normalize_people_in_text(
+        note_id=note_id,
+        text=body,
+        people_extraction=people_extraction,
+        metadata=metadata,
+        )
+
+
+async def normalize_people_in_file_async(path: Path) -> PersonNormalizationResponse:
+    """
+    Async версия пайплайна для одной заметки.
+    """
+    meta_resp: NoteMetadataResponse = await extract_note_metadata_from_file_async(path)
+    metadata = meta_resp.metadata
+
+    post = await asyncio.to_thread(frontmatter.load, path)
+    body = post.content
+    note_id = path.stem
+
+    people_extraction = await extract_people_from_text_async(
+        note_id=note_id,
+        text=body,
+        metadata=metadata,
+        )
+
+    return await normalize_people_in_text_async(
         note_id=note_id,
         text=body,
         people_extraction=people_extraction,

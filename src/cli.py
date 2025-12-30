@@ -97,12 +97,19 @@ def scan_people(
         False,
         "--overwrite",
         help="Пересчитать кэш, даже если файл cache/persons_local_normalized.jsonl уже существует",
-        )
+        ),
+    workers: int = typer.Option(
+        8,
+        "--workers",
+        "-w",
+        min=1,
+        help="Сколько заметок обрабатывать параллельно",
+        ),
     ):
     """
     Пройти по всем data/pages и собрать нормализованных персон в кэш.
     """
-    scan_people_over_pages(overwrite_cache=overwrite)
+    scan_people_over_pages(overwrite_cache=overwrite, workers=workers)
 
 @app.command()
 def show_candidates(
@@ -114,11 +121,19 @@ def show_candidates(
     debug_print_candidates(limit=limit)
 
 @app.command()
-def cluster(conf_threshold: float = typer.Option(0.8)):
+def cluster(
+    conf_threshold: float = typer.Option(0.8),
+    match_workers: int = typer.Option(
+        8,
+        "--match-workers",
+        help="Одновременных запросов к LLM при сравнении пар",
+        min=1,
+        ),
+    ):
     """
     Запустить кластеризацию персон по всему пулу заметок.
     """
-    clusters = cluster_people(conf_threshold=conf_threshold)
+    clusters = cluster_people(conf_threshold=conf_threshold, match_workers=match_workers)
     for gp in clusters:
         print(f"{gp.global_person_id}: {gp.canonical_full_name!r} ({len(gp.members)} entries)")
 

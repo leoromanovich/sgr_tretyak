@@ -1,16 +1,17 @@
 from typing import Dict, Any
 from pathlib import Path
+import asyncio
 import json
 
 import frontmatter
 
-from ..llm_client import chat_sgr_parse
+from ..llm_client import chat_sgr_parse, chat_sgr_parse_async
 from ..models import (
     NoteMetadata,
     NoteMetadataResponse,
     PersonExtractionResponse,
     )
-from .note_metadata import extract_note_metadata_from_file
+from .note_metadata import extract_note_metadata_from_file, extract_note_metadata_from_file_async
 from ..llm_prompts import add_no_think
 
 
@@ -129,14 +130,11 @@ SYSTEM_PROMPT = """
 """
 
 
-def extract_people_from_text(
+def _build_people_messages(
     note_id: str,
     text: str,
     metadata: NoteMetadata,
-    ) -> PersonExtractionResponse:
-    """
-    Вызывает LLM для извлечения людей из текста заметки с учётом NoteMetadata.
-    """
+    ) -> list[Dict[str, Any]]:
     metadata_json = metadata.model_dump()
     metadata_str = json.dumps(metadata_json, ensure_ascii=False, indent=2)
 
@@ -150,7 +148,7 @@ def extract_people_from_text(
         f"{text}"
     )
 
-    messages = [
+    return [
         {
             "role": "system",
             "content": SYSTEM_PROMPT,
@@ -160,6 +158,37 @@ def extract_people_from_text(
             "content": add_no_think(user_content),
             },
         ]
+
+
+async def extract_people_from_text_async(
+    note_id: str,
+    text: str,
+    metadata: NoteMetadata,
+    ) -> PersonExtractionResponse:
+    """
+    Вызывает LLM для извлечения людей из текста заметки с учётом NoteMetadata (async-версия).
+    """
+    messages = _build_people_messages(note_id, text, metadata)
+
+    return await chat_sgr_parse_async(
+        messages=messages,
+        schema_name="people_extraction",
+        schema=PEOPLE_SCHEMA,
+        model_cls=PersonExtractionResponse,
+        temperature=0.0,
+        max_tokens=8192,
+        )
+
+
+def extract_people_from_text(
+    note_id: str,
+    text: str,
+    metadata: NoteMetadata,
+    ) -> PersonExtractionResponse:
+    """
+    Синхронная версия извлечения людей.
+    """
+    messages = _build_people_messages(note_id, text, metadata)
 
     return chat_sgr_parse(
         messages=messages,
@@ -189,3 +218,17 @@ def extract_people_from_file(path: Path) -> PersonExtractionResponse:
 
     # 3. people extractor
     return extract_people_from_text(note_id=note_id, text=body, metadata=metadata)
+
+
+async def extract_people_from_file_async(path: Path) -> PersonExtractionResponse:
+    """
+    Async-вариант пайплайна для одной заметки.
+    """
+    meta_resp: NoteMetadataResponse = await extract_note_metadata_from_file_async(path)
+    metadata = meta_resp.metadata
+
+    post = await asyncio.to_thread(frontmatter.load, path)
+    body = post.content
+    note_id = path.stem
+
+    return await extract_people_from_text_async(note_id=note_id, text=body, metadata=metadata)

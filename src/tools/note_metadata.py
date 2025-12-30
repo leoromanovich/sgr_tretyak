@@ -1,9 +1,10 @@
 from typing import Dict, Any, List
 from pathlib import Path
+import asyncio
 
 import frontmatter
 
-from ..llm_client import chat_sgr_parse
+from ..llm_client import chat_sgr_parse, chat_sgr_parse_async
 from ..models import NoteMetadataResponse
 
 
@@ -50,11 +51,8 @@ SYSTEM_PROMPT = """
 """  # noqa: E501
 
 
-def extract_note_metadata_from_text(note_id: str, text: str) -> NoteMetadataResponse:
-    """
-    Вызывает LLM с SGR-схемой и возвращает NoteMetadataResponse.
-    """
-    messages = [
+def _build_metadata_messages(note_id: str, text: str) -> List[Dict[str, Any]]:
+    return [
         {
             "role": "system",
             "content": SYSTEM_PROMPT,
@@ -71,7 +69,13 @@ def extract_note_metadata_from_text(note_id: str, text: str) -> NoteMetadataResp
         },
     ]
 
-    return chat_sgr_parse(
+
+async def extract_note_metadata_from_text_async(note_id: str, text: str) -> NoteMetadataResponse:
+    """
+    Вызывает LLM с SGR-схемой и возвращает NoteMetadataResponse.
+    """
+    messages = _build_metadata_messages(note_id, text)
+    return await chat_sgr_parse_async(
         messages=messages,
         schema_name="note_metadata",
         schema=NOTE_METADATA_SCHEMA,
@@ -81,11 +85,29 @@ def extract_note_metadata_from_text(note_id: str, text: str) -> NoteMetadataResp
     )
 
 
-def extract_note_metadata_from_file(path: Path) -> NoteMetadataResponse:
+def extract_note_metadata_from_text(note_id: str, text: str) -> NoteMetadataResponse:
+    return chat_sgr_parse(
+        messages=_build_metadata_messages(note_id, text),
+        schema_name="note_metadata",
+        schema=NOTE_METADATA_SCHEMA,
+        model_cls=NoteMetadataResponse,
+        temperature=0.0,
+        max_tokens=800,
+        )
+
+
+async def extract_note_metadata_from_file_async(path: Path) -> NoteMetadataResponse:
     """
     Читает MD-файл, вытаскивает body (игнорируя существующий фронтматтер)
     и передаёт в LLM.
     """
+    post = await asyncio.to_thread(frontmatter.load, path)
+    body = post.content
+    note_id = path.stem
+    return await extract_note_metadata_from_text_async(note_id=note_id, text=body)
+
+
+def extract_note_metadata_from_file(path: Path) -> NoteMetadataResponse:
     post = frontmatter.load(path)
     body = post.content
     note_id = path.stem

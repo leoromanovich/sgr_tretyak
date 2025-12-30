@@ -1,10 +1,11 @@
+import asyncio
 from typing import List, Dict
-from rich import print
+from rich import print, progress
 
 from ..models import PersonCandidate, PersonMatchDecision, GlobalPerson, EpisodeRef, NameParts
 from .person_candidates import load_person_candidates
 from .blocking import block_pairs
-from .person_matcher import match_candidates
+from .person_matcher import match_candidates_async
 
 class DSU:
     def __init__(self, n):
@@ -21,7 +22,10 @@ class DSU:
             self.p[rb] = ra
 
 
-def cluster_people(conf_threshold: float = 0.8) -> List[GlobalPerson]:
+async def cluster_people_async(
+    conf_threshold: float = 0.8,
+    match_workers: int = 8,
+    ) -> List[GlobalPerson]:
     candidates = load_person_candidates()
     if not candidates:
         raise RuntimeError("Нет кандидатов (запусти scan-people).")
@@ -37,15 +41,28 @@ def cluster_people(conf_threshold: float = 0.8) -> List[GlobalPerson]:
 
     print("[bold]Запускаем LLM-матчинг...[/bold]")
 
-    for c1, c2 in pairs:
-        try:
-            decision: PersonMatchDecision = match_candidates(c1, c2)
-        except Exception as e:
-            print(f"[red]Ошибка при сравнении {c1.candidate_id} vs {c2.candidate_id}:[/red] {e}")
-            continue
+    limiter = asyncio.Semaphore(max(1, match_workers))
 
-        if decision.relation == "same_person" and decision.confidence >= conf_threshold:
-            uf.union(id_to_index[c1.candidate_id], id_to_index[c2.candidate_id])
+    async def process_pair(c1: PersonCandidate, c2: PersonCandidate):
+        async with limiter:
+            try:
+                decision: PersonMatchDecision = await match_candidates_async(c1, c2)
+                return c1, c2, decision, None
+            except Exception as exc:
+                return c1, c2, None, exc
+
+    tasks = [asyncio.create_task(process_pair(c1, c2)) for c1, c2 in pairs]
+
+    if tasks:
+        with progress.Progress() as pbar:
+            task = pbar.add_task("[green]Матчинг пар...", total=len(tasks))
+            for coro in asyncio.as_completed(tasks):
+                c1, c2, decision, err = await coro
+                if err:
+                    print(f"[red]Ошибка при сравнении {c1.candidate_id} vs {c2.candidate_id}:[/red] {err}")
+                elif decision.relation == "same_person" and decision.confidence >= conf_threshold:
+                    uf.union(id_to_index[c1.candidate_id], id_to_index[c2.candidate_id])
+                pbar.advance(task)
 
     print("[bold]Строим кластеры...[/bold]")
 
@@ -120,3 +137,12 @@ def cluster_people(conf_threshold: float = 0.8) -> List[GlobalPerson]:
 
     print(f"[bold green]Готово. Кластеров:[/bold green] {len(global_persons)}")
     return global_persons
+
+
+def cluster_people(conf_threshold: float = 0.8, match_workers: int = 8) -> List[GlobalPerson]:
+    return asyncio.run(
+        cluster_people_async(
+            conf_threshold=conf_threshold,
+            match_workers=match_workers,
+            )
+        )

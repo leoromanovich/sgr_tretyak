@@ -1,5 +1,6 @@
 from typing import Dict, Any
-from ..llm_client import chat_sgr_parse
+
+from ..llm_client import chat_sgr_parse, chat_sgr_parse_async
 from ..llm_prompts import add_no_think
 from ..models import PersonCandidate, PersonMatchDecision
 
@@ -55,7 +56,7 @@ SYSTEM_PROMPT = """
 """
 
 
-def match_candidates(c1: PersonCandidate, c2: PersonCandidate) -> PersonMatchDecision:
+def _build_match_messages(c1: PersonCandidate, c2: PersonCandidate):
     user_content = f"""
 Сравни двух кандидатов:
 
@@ -76,11 +77,26 @@ year: {c2.note_year_context}
 confidence: {c2.person_confidence}
 /no_think
 """
-    messages = [
+    return [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": add_no_think(user_content)},
         ]
 
+
+async def match_candidates_async(c1: PersonCandidate, c2: PersonCandidate) -> PersonMatchDecision:
+    messages = _build_match_messages(c1, c2)
+    return await chat_sgr_parse_async(
+        messages=messages,
+        schema_name="person_matcher",
+        schema=MATCH_SCHEMA,
+        model_cls=PersonMatchDecision,
+        temperature=0.0,
+        max_tokens=None,
+        )
+
+
+def match_candidates(c1: PersonCandidate, c2: PersonCandidate) -> PersonMatchDecision:
+    messages = _build_match_messages(c1, c2)
     return chat_sgr_parse(
         messages=messages,
         schema_name="person_matcher",
