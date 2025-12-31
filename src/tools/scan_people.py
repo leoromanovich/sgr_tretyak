@@ -1,9 +1,11 @@
 import asyncio
 from pathlib import Path
-from typing import Iterable, List
+from time import perf_counter
+from typing import Iterable, List, Tuple
 
 import orjson
-from rich import print, progress
+from rich import print
+from tqdm.auto import tqdm
 
 from ..config import settings
 from ..models import PersonNormalizationResponse
@@ -74,7 +76,8 @@ async def scan_people_over_pages_async(
         return
 
     limiter = asyncio.Semaphore(max(1, workers))
-    queue: asyncio.Queue = asyncio.Queue()
+    started_at = perf_counter()
+    queue: asyncio.Queue[Tuple[Path, List[bytes], Exception | None]] = asyncio.Queue()
 
     async def run_with_limit(path: Path):
         async with limiter:
@@ -87,9 +90,12 @@ async def scan_people_over_pages_async(
     tasks = [asyncio.create_task(run_with_limit(path)) for path in pages]
 
     async def writer():
-        with open(CACHE_PERSONS_LOCAL, "wb") as f_out, progress.Progress() as pbar:
-            task = pbar.add_task("[green]Сканирование заметок и людей...", total=len(pages))
-            processed = 0
+        with open(CACHE_PERSONS_LOCAL, "wb") as f_out, tqdm(
+            total=len(pages),
+            desc="Сканирование заметок",
+            unit="note",
+            leave=True,
+        ) as pbar:
             while True:
                 item = await queue.get()
                 if item is None:
@@ -102,20 +108,20 @@ async def scan_people_over_pages_async(
                     for payload in records:
                         f_out.write(payload)
                         f_out.write(b"\n")
-                pbar.advance(task)
-                processed += 1
+                pbar.update(1)
                 queue.task_done()
-            if processed < len(pages):
-                remaining = len(pages) - processed
-                pbar.advance(task, remaining)
 
     writer_task = asyncio.create_task(writer())
 
     await asyncio.gather(*tasks)
     await queue.put(None)
+    await queue.join()
     await writer_task
 
+    elapsed = perf_counter() - started_at
+    per_note = elapsed / len(pages) if pages else 0
     print(f"[bold green]Готово.[/bold green] Кандидаты записаны в {CACHE_PERSONS_LOCAL}")
+    print(f"[blue]Скорость:[/blue] {elapsed:.1f}с всего (~{per_note:.1f}с/заметку) при {workers} воркерах")
 
 
 def scan_people_over_pages(

@@ -1,4 +1,4 @@
-from typing import Dict, Any
+from typing import Any, Dict, List
 from pathlib import Path
 import asyncio
 import json
@@ -18,98 +18,6 @@ from .people_extractor import (
     extract_people_from_text,
     extract_people_from_text_async,
     )
-
-
-# JSON Schema для нормализации имён
-NAME_NORMALIZER_SCHEMA: Dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "note_id": {"type": "string"},
-        "people": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    # поля из PersonLocal
-                    "note_id": {"type": "string"},
-                    "local_person_id": {"type": "string"},
-                    "surface_forms": {"type": "array", "items": {"type": "string"}},
-                    "canonical_name_in_note": {"type": "string"},
-                    "is_person": {"type": "boolean"},
-                    "confidence": {
-                        "type": "number",
-                        "minimum": 0.0,
-                        "maximum": 1.0,
-                        },
-                    "note_year_context": {"type": ["integer", "null"]},
-                    "note_year_source": {
-                        "type": "string",
-                        "enum": ["inline", "note_metadata", "unknown"],
-                        },
-                    "snippet_evidence": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "snippet": {"type": "string"},
-                                "reasoning": {"type": "string"},
-                                },
-                            "required": ["snippet", "reasoning"],
-                            "additionalProperties": False,
-                            },
-                        },
-                    # новые поля
-                    "normalized_full_name": {"type": ["string", "null"]},
-                    "name_parts": {
-                        "type": "object",
-                        "properties": {
-                            "last_name": {"type": ["string", "null"]},
-                            "first_name": {"type": ["string", "null"]},
-                            "patronymic": {"type": ["string", "null"]},
-                            },
-                        "required": ["last_name", "first_name", "patronymic"],
-                        "additionalProperties": False,
-                        },
-                    "abbreviation_links": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "from_form": {"type": "string"},
-                                "to_form": {"type": "string"},
-                                "confidence": {
-                                    "type": "number",
-                                    "minimum": 0.0,
-                                    "maximum": 1.0,
-                                    },
-                                "reasoning": {"type": "string"},
-                                },
-                            "required": ["from_form", "to_form", "confidence", "reasoning"],
-                            "additionalProperties": False,
-                            },
-                        },
-                    },
-                "required": [
-                    "note_id",
-                    "local_person_id",
-                    "surface_forms",
-                    "canonical_name_in_note",
-                    "is_person",
-                    "confidence",
-                    "note_year_context",
-                    "note_year_source",
-                    "snippet_evidence",
-                    "normalized_full_name",
-                    "name_parts",
-                    "abbreviation_links",
-                    ],
-                "additionalProperties": False,
-                },
-            },
-        },
-    "required": ["note_id", "people"],
-    "additionalProperties": False,
-    }
 
 
 SYSTEM_PROMPT = """
@@ -154,7 +62,7 @@ def _build_normalizer_messages(
     text: str,
     people_extraction: PersonExtractionResponse,
     metadata: NoteMetadata,
-    ) -> list[Dict[str, Any]]:
+    ) -> List[Dict[str, Any]]:
     metadata_str = json.dumps(metadata.model_dump(), ensure_ascii=False, indent=2)
     people_str = json.dumps(people_extraction.model_dump(), ensure_ascii=False, indent=2)
 
@@ -185,9 +93,8 @@ async def normalize_people_in_text_async(
     messages = _build_normalizer_messages(note_id, text, people_extraction, metadata)
     return await chat_sgr_parse_async(
         messages=messages,
-        schema_name="name_normalizer",
-        schema=NAME_NORMALIZER_SCHEMA,
         model_cls=PersonNormalizationResponse,
+        schema_name="name_normalizer",
         temperature=0.0,
         max_tokens=None,
         )
@@ -202,9 +109,8 @@ def normalize_people_in_text(
     messages = _build_normalizer_messages(note_id, text, people_extraction, metadata)
     return chat_sgr_parse(
         messages=messages,
-        schema_name="name_normalizer",
-        schema=NAME_NORMALIZER_SCHEMA,
         model_cls=PersonNormalizationResponse,
+        schema_name="name_normalizer",
         temperature=0.0,
         max_tokens=None,
         )

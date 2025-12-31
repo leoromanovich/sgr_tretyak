@@ -5,9 +5,10 @@ from typing import Dict, List, Tuple
 from rich import print
 
 from ..config import settings
-from ..models import PersonCandidate, GlobalPerson
-from .person_candidates import load_person_candidates
+from ..models import GlobalPerson, PersonCandidate
 from .cluster_people import cluster_people
+from .note_naming import build_note_filename
+from .person_candidates import load_person_candidates
 from .person_note_generator import filename_from_full_name
 
 
@@ -66,6 +67,46 @@ def build_unique_surface_forms_for_note(
 import re
 from typing import List, Tuple
 
+LETTER_RE = re.compile(r"[A-Za-zА-Яа-яЁё]+")
+WORD_CHARS = "0-9A-Za-zА-Яа-яЁё"
+
+
+def _find_form_spans(form: str, text: str) -> List[Tuple[int, int]]:
+    spans: List[Tuple[int, int]] = []
+
+    literal_pattern = re.escape(form)
+    spans = [m.span() for m in re.finditer(literal_pattern, text)]
+    if spans:
+        return spans
+
+    spans = [m.span() for m in re.finditer(literal_pattern, text, flags=re.IGNORECASE)]
+    if spans:
+        return spans
+
+    if not LETTER_RE.search(form):
+        return []
+
+    def build_flexible_pattern() -> str:
+        parts: List[str] = []
+        last = 0
+        for match in LETTER_RE.finditer(form):
+            parts.append(re.escape(form[last:match.start()]))
+            word = re.escape(match.group(0))
+            parts.append(f"{word}[а-яё]{{0,4}}")
+            last = match.end()
+        parts.append(re.escape(form[last:]))
+        pattern = "".join(parts)
+
+        if re.match(rf"[{WORD_CHARS}]", form):
+            pattern = rf"(?<![{WORD_CHARS}])" + pattern
+        if re.search(rf"[{WORD_CHARS}]$", form):
+            pattern = pattern + rf"(?![{WORD_CHARS}])"
+        return pattern
+
+    flex_pattern = build_flexible_pattern()
+    return [m.span() for m in re.finditer(flex_pattern, text, flags=re.IGNORECASE)]
+
+
 def apply_links_to_text(text: str, replacements: List[Tuple[str, str]]) -> str:
     """
     Делаем ОДИН проход по исходному тексту:
@@ -95,9 +136,7 @@ def apply_links_to_text(text: str, replacements: List[Tuple[str, str]]) -> str:
     spans: List[Tuple[int, int, str, str]] = []  # (start, end, form, filename)
 
     for form, fname in replacements_sorted:
-        pattern = re.escape(form)
-        for m in re.finditer(pattern, text):
-            start, end = m.span()
+        for start, end in _find_form_spans(form, text):
 
             if overlaps_excluded(start, end):
                 continue
@@ -182,18 +221,19 @@ def link_persons_in_pages() -> None:
             continue
 
         text = src_path.read_text(encoding="utf-8")
+        out_filename = build_note_filename(note_id, text)
 
         # 4. Подбираем однозначные формы
         replacements = build_unique_surface_forms_for_note(persons, cid_to_file)
 
         if not replacements:
             # ничего линковать
-            out_path = out_dir / src_path.name
+            out_path = out_dir / out_filename
             out_path.write_text(text, encoding="utf-8")
             continue
 
         new_text = apply_links_to_text(text, replacements)
 
-        out_path = out_dir / src_path.name
+        out_path = out_dir / out_filename
         out_path.write_text(new_text, encoding="utf-8")
         print(f"[green]Линкована:[/green] {src_path.name} -> {out_path.relative_to(settings.project_root)}")

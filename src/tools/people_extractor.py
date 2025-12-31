@@ -1,4 +1,4 @@
-from typing import Dict, Any
+from typing import Any, Dict, List
 from pathlib import Path
 import asyncio
 import json
@@ -13,69 +13,6 @@ from ..models import (
     )
 from .note_metadata import extract_note_metadata_from_file, extract_note_metadata_from_file_async
 from ..llm_prompts import add_no_think
-
-
-# JSON Schema для structured output (должна соответствовать PersonExtractionResponse)
-PEOPLE_SCHEMA: Dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "note_id": {"type": "string"},
-        "people": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "note_id": {"type": "string"},
-                    "local_person_id": {"type": "string"},
-                    "surface_forms": {
-                        "type": "array",
-                        "items": {"type": "string", "maxLength": 100},
-                        },
-                    "canonical_name_in_note": {"type": "string"},
-                    "is_person": {"type": "boolean"},
-                    "confidence": {
-                        "type": "number",
-                        "minimum": 0.0,
-                        "maximum": 1.0,
-                        },
-                    "note_year_context": {
-                        "type": ["integer", "null"],
-                        },
-                    "note_year_source": {
-                        "type": "string",
-                        "enum": ["inline", "note_metadata", "unknown"],
-                        },
-                    "snippet_evidence": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "snippet": {"type": "string", "maxLength": 300},
-                                "reasoning": {"type": "string", "maxLength": 300},
-                                },
-                            "required": ["snippet", "reasoning"],
-                            "additionalProperties": False,
-                            },
-                        },
-                    },
-                "required": [
-                    "note_id",
-                    "local_person_id",
-                    "surface_forms",
-                    "canonical_name_in_note",
-                    "is_person",
-                    "confidence",
-                    "note_year_context",
-                    "note_year_source",
-                    "snippet_evidence",
-                    ],
-                "additionalProperties": False,
-                },
-            },
-        },
-    "required": ["note_id", "people"],
-    "additionalProperties": False,
-    }
 
 
 SYSTEM_PROMPT = """
@@ -93,7 +30,7 @@ SYSTEM_PROMPT = """
 3. Объединять очевидные варианты одного и того же человека:
    - "И.И. Иванов", "Иван Иванович", "Иван Иванович Иванов", "Иванов" (если в контексте ясно, что это один человек).
 4. Для каждого человека:
-   - surface_forms — перечисли все разные формы имени, встречающиеся в тексте (как минимум 1).
+   - surface_forms — перечисли ТОЛЬКО разные формы имени, встречающиеся в тексте (как минимум 1, максимум 10). Если форм больше, выбери самые разные и представительные. Одинаковые строки нельзя повторять.
    - canonical_name_in_note — выбери наиболее полную и однозначную форму (обычно полное ФИО, если оно есть).
    - is_person — true только если ты уверен, что это человек.
    - confidence — насколько уверенно, что это отдельная историческая персона (0–1).
@@ -107,9 +44,10 @@ SYSTEM_PROMPT = """
 
 ОЧЕНЬ ВАЖНО:
 1) Для КАЖДОГО человека:
-   - surface_forms: только УНИКАЛЬНЫЕ формы, НЕ БОЛЕЕ 5 штук.
-     Если в тексте одно и то же написание встречается много раз,
-     ты добавляешь его В СПИСОК ТОЛЬКО ОДИН РАЗ.
+   - surface_forms: только УНИКАЛЬНЫЕ формы, НЕ БОЛЕЕ 10 штук.
+     Даже если одно написание встретилось десятки раз, в список его
+     нужно добавить строго один раз. Если форм много — выбери 5–10
+     наиболее различных, остальные опусти.
    - snippet_evidence: не более 3 фрагментов текста. Каждый фрагмент
      короче 300 символов. Не нужно дублировать одинаковый текст.
 
@@ -134,7 +72,7 @@ def _build_people_messages(
     note_id: str,
     text: str,
     metadata: NoteMetadata,
-    ) -> list[Dict[str, Any]]:
+    ) -> List[Dict[str, Any]]:
     metadata_json = metadata.model_dump()
     metadata_str = json.dumps(metadata_json, ensure_ascii=False, indent=2)
 
@@ -172,9 +110,8 @@ async def extract_people_from_text_async(
 
     return await chat_sgr_parse_async(
         messages=messages,
-        schema_name="people_extraction",
-        schema=PEOPLE_SCHEMA,
         model_cls=PersonExtractionResponse,
+        schema_name="people_extraction",
         temperature=0.0,
         max_tokens=8192,
         )
@@ -192,9 +129,8 @@ def extract_people_from_text(
 
     return chat_sgr_parse(
         messages=messages,
-        schema_name="people_extraction",
-        schema=PEOPLE_SCHEMA,
         model_cls=PersonExtractionResponse,
+        schema_name="people_extraction",
         temperature=0.0,
         max_tokens=8192,
         )

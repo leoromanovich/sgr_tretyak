@@ -1,29 +1,6 @@
-from typing import Dict, Any
-
 from ..llm_client import chat_sgr_parse, chat_sgr_parse_async
 from ..llm_prompts import add_no_think
 from ..models import PersonCandidate, PersonMatchDecision
-
-
-MATCH_SCHEMA: Dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "left_candidate_id": {"type": "string"},
-        "right_candidate_id": {"type": "string"},
-        "relation": {
-            "type": "string",
-            "enum": ["same_person", "different_person", "unknown"],
-            },
-        "confidence": {
-            "type": "number",
-            "minimum": 0.0,
-            "maximum": 1.0,
-            },
-        "reasoning": {"type": "string"},
-        },
-    "required": ["left_candidate_id", "right_candidate_id", "relation", "confidence", "reasoning"],
-    "additionalProperties": False,
-    }
 
 
 SYSTEM_PROMPT = """
@@ -87,9 +64,8 @@ async def match_candidates_async(c1: PersonCandidate, c2: PersonCandidate) -> Pe
     messages = _build_match_messages(c1, c2)
     return await chat_sgr_parse_async(
         messages=messages,
-        schema_name="person_matcher",
-        schema=MATCH_SCHEMA,
         model_cls=PersonMatchDecision,
+        schema_name="person_matcher",
         temperature=0.0,
         max_tokens=None,
         )
@@ -99,9 +75,8 @@ def match_candidates(c1: PersonCandidate, c2: PersonCandidate) -> PersonMatchDec
     messages = _build_match_messages(c1, c2)
     return chat_sgr_parse(
         messages=messages,
-        schema_name="person_matcher",
-        schema=MATCH_SCHEMA,
         model_cls=PersonMatchDecision,
+        schema_name="person_matcher",
         temperature=0.0,
         max_tokens=None,
         )

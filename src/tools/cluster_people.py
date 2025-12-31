@@ -1,9 +1,11 @@
 import asyncio
 import re
+from time import perf_counter
 from typing import Dict, List, Optional, Tuple
 
 import orjson
-from rich import print, progress
+from rich import print
+from tqdm.auto import tqdm
 
 from ..config import settings
 from ..models import EpisodeRef, GlobalPerson, PersonCandidate, PersonMatchDecision
@@ -84,6 +86,7 @@ async def cluster_people_async(
     match_cache = load_match_cache()
     cache_lock = asyncio.Lock()
     new_entries: List[Tuple[str, str, str, float]] = []
+    matching_started_at = perf_counter()
 
     def normalize_token(value: Optional[str]) -> Optional[str]:
         if not value:
@@ -168,8 +171,7 @@ async def cluster_people_async(
     tasks = [asyncio.create_task(process_pair(c1, c2)) for c1, c2 in pairs]
 
     if tasks:
-        with progress.Progress() as pbar:
-            task = pbar.add_task("[green]Матчинг пар...", total=len(tasks))
+        with tqdm(total=len(tasks), desc="Матчинг пар", unit="pair", leave=True) as pbar:
             for coro in asyncio.as_completed(tasks):
                 c1, c2, decision, err = await coro
                 if err:
@@ -184,8 +186,12 @@ async def cluster_people_async(
                         confidence = decision.confidence
                     if relation == "same_person" and confidence >= conf_threshold:
                         uf.union(id_to_index[c1.candidate_id], id_to_index[c2.candidate_id])
-                pbar.advance(task)
+                pbar.update(1)
     append_match_cache(new_entries)
+    if tasks:
+        elapsed = perf_counter() - matching_started_at
+        print(f"[blue]Матчинг:[/blue] {len(tasks)} пар за {elapsed:.1f}с (~{elapsed/len(tasks):.2f}с/пару) "
+              f"при {match_workers} воркерах")
 
     print("[bold]Строим кластеры...[/bold]")
 

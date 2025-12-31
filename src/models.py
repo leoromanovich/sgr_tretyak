@@ -40,10 +40,13 @@ class NoteMetadataResponse(BaseModel):
 
 class PersonSnippetEvidence(BaseModel):
     snippet: str = Field(
-        ..., description="Короткий фрагмент текста, где упоминается персона"
+        ...,
+        max_length=300,
+        description="Короткий фрагмент текста, где упоминается персона",
     )
     reasoning: str = Field(
         ...,
+        max_length=300,
         description="Краткое объяснение, почему это упоминание интерпретируется как человек",
     )
 
@@ -55,6 +58,8 @@ class PersonLocal(BaseModel):
     )
     surface_forms: List[str] = Field(
         ...,
+        min_length=1,
+        max_length=10,
         description='Разные формы имени, встречающиеся в тексте ("И.И. Иванов", "Иван Иванович", "Иванов")',
     )
     canonical_name_in_note: str = Field(

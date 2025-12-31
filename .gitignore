@@ -12,3 +12,5 @@ wheels/
 .env
 .idea
 cache/
+logs/
+log_tracing/

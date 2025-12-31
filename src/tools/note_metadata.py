@@ -1,4 +1,4 @@
-from typing import Dict, Any, List
+from typing import Any, Dict, List
 from pathlib import Path
 import asyncio
 
@@ -6,33 +6,6 @@ import frontmatter
 
 from ..llm_client import chat_sgr_parse, chat_sgr_parse_async
 from ..models import NoteMetadataResponse
-
-
-NOTE_METADATA_SCHEMA: Dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "metadata": {
-            "type": "object",
-            "properties": {
-                "note_id": {"type": "string"},
-                "primary_year": {"type": ["integer", "null"]},
-                "year_start": {"type": ["integer", "null"]},
-                "year_end": {"type": ["integer", "null"]},
-                "location": {"type": ["string", "null"]},
-                "topic": {"type": ["string", "null"]},
-                "reliability": {
-                    "type": "number",
-                    "minimum": 0.0,
-                    "maximum": 1.0,
-                },
-            },
-            "required": ["note_id", "reliability"],
-            "additionalProperties": False,
-        },
-    },
-    "required": ["metadata"],
-    "additionalProperties": False,
-}
 
 
 SYSTEM_PROMPT = """
@@ -77,9 +50,8 @@ async def extract_note_metadata_from_text_async(note_id: str, text: str) -> Note
     messages = _build_metadata_messages(note_id, text)
     return await chat_sgr_parse_async(
         messages=messages,
-        schema_name="note_metadata",
-        schema=NOTE_METADATA_SCHEMA,
         model_cls=NoteMetadataResponse,
+        schema_name="note_metadata",
         temperature=0.0,
         max_tokens=800,
     )
@@ -88,9 +60,8 @@ async def extract_note_metadata_from_text_async(note_id: str, text: str) -> Note
 def extract_note_metadata_from_text(note_id: str, text: str) -> NoteMetadataResponse:
     return chat_sgr_parse(
         messages=_build_metadata_messages(note_id, text),
-        schema_name="note_metadata",
-        schema=NOTE_METADATA_SCHEMA,
         model_cls=NoteMetadataResponse,
+        schema_name="note_metadata",
         temperature=0.0,
         max_tokens=800,
         )

@@ -471,6 +471,7 @@ dependencies = [
     { name = "pydantic-settings" },
     { name = "python-frontmatter" },
     { name = "rich" },
+    { name = "tqdm" },
     { name = "typer" },
 ]
 
@@ -483,7 +484,8 @@ requires-dist = [
     { name = "pydantic-settings", specifier = ">=2.12.0" },
     { name = "python-frontmatter", specifier = ">=1.1.0" },
     { name = "rich", specifier = ">=14.2.0" },
-    { name = "typer", extras = ["all"], specifier = ">=0.21.0" },
+    { name = "tqdm", specifier = ">=4.66.0" },
+    { name = "typer", specifier = ">=0.21.0" },
 ]
 
 [[package]]

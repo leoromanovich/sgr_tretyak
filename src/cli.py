@@ -11,6 +11,10 @@ from .tools.person_candidates import debug_print_candidates
 from .tools.cluster_people import cluster_people
 from .tools.person_note_generator import write_person_notes
 from .tools.note_linker import link_persons_in_pages
+from .utils.logging_utils import setup_file_logging
+
+
+setup_file_logging("cli")
 
 
 app = typer.Typer(help="Исторический SGR-пайплайн")

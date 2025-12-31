@@ -1,7 +1,6 @@
 from pydantic_settings import BaseSettings
 from pathlib import Path
 
-
 class Settings(BaseSettings):
     # LLM / vLLM
     openai_base_url: str = "http://localhost:8000/v1"

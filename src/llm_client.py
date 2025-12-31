@@ -1,6 +1,10 @@
 import asyncio
+import json
+import os
+from datetime import datetime
 from typing import Any, Dict, List, Optional, Type, TypeVar
-from openai import OpenAI, AsyncOpenAI
+
+from openai import AsyncOpenAI, OpenAI
 from pydantic import BaseModel, ValidationError
 
 from src.config import settings
@@ -91,9 +95,9 @@ def chat_raw(
 
 async def chat_sgr_parse_async(
     messages: List[Dict[str, Any]],
-    schema_name: str,
-    schema: Dict[str, Any],
     model_cls: Type[T],
+    schema_name: Optional[str] = None,
+    schema: Optional[Dict[str, Any]] = None,
     temperature: float = 0.0,
     max_tokens: Optional[int] = None,
     ) -> T:
@@ -101,6 +105,11 @@ async def chat_sgr_parse_async(
     Делает вызов LLM с response_format=json_schema и парсит
     результат через Pydantic-модель `model_cls`.
     """
+    if schema is None:
+        schema = model_cls.model_json_schema()
+    if schema_name is None:
+        schema_name = schema.get("title") or model_cls.__name__
+
     response_format = {
         "type": "json_schema",
         "json_schema": {
@@ -121,12 +130,28 @@ async def chat_sgr_parse_async(
     if not content:
         raise RuntimeError("LLM вернул пустой content при SGR-вызове")
 
-    import json
-
     try:
         data = json.loads(content)
     except json.JSONDecodeError as e:
         raise RuntimeError(f"Невалидный JSON от LLM: {e}\nRaw: {content}")
+
+    if _should_trace():
+        trace_dir = settings.project_root / "log_tracing"
+        trace_dir.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        trace_path = trace_dir / f"{schema_name}_{timestamp}.json"
+        with open(trace_path, "w", encoding="utf-8") as f:
+            json.dump(
+                {
+                    "schema_name": schema_name,
+                    "messages": messages,
+                    "response": resp["raw"].model_dump(),
+                    "parsed_json": data,
+                },
+                f,
+                ensure_ascii=False,
+                indent=2,
+            )
 
     try:
         return model_cls.model_validate(data)
@@ -136,9 +161,9 @@ async def chat_sgr_parse_async(
 
 def chat_sgr_parse(
     messages: List[Dict[str, Any]],
-    schema_name: str,
-    schema: Dict[str, Any],
     model_cls: Type[T],
+    schema_name: Optional[str] = None,
+    schema: Optional[Dict[str, Any]] = None,
     temperature: float = 0.0,
     max_tokens: Optional[int] = None,
     ) -> T:
@@ -148,10 +173,12 @@ def chat_sgr_parse(
     return _run_sync(
         chat_sgr_parse_async(
             messages=messages,
+            model_cls=model_cls,
             schema_name=schema_name,
             schema=schema,
-            model_cls=model_cls,
             temperature=temperature,
             max_tokens=max_tokens,
             )
         )
+def _should_trace() -> bool:
+    return os.getenv("SGR_LOGGING") == "DEBUG"
