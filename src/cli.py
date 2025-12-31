@@ -149,7 +149,7 @@ def gen_person_notes(conf_threshold: float = typer.Option(0.8)):
 @app.command()
 def link_persons():
     """
-    Проставить ссылки на людей в заметках и сохранить результат в data/pages_linked.
+    Проставить ссылки на людей в заметках и сохранить результат в data/obsidian/items.
     """
     link_persons_in_pages()
 

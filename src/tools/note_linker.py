@@ -78,6 +78,19 @@ def apply_links_to_text(text: str, replacements: List[Tuple[str, str]]) -> str:
     # Сортируем формы по длине (сначала длинные -> выигрывают при пересечениях)
     replacements_sorted = sorted(replacements, key=lambda x: len(x[0]), reverse=True)
 
+    # вырезаем диапазоны, которые нельзя трогать (например, alt-текст изображений)
+    excluded_spans: List[Tuple[int, int]] = []
+    for match in re.finditer(r"!\[(.*?)\]", text):
+        alt_start = match.start(1)
+        alt_end = match.end(1)
+        excluded_spans.append((alt_start, alt_end))
+
+    def overlaps_excluded(start: int, end: int) -> bool:
+        for s, e in excluded_spans:
+            if not (end <= s or start >= e):
+                return True
+        return False
+
     # 1. Собираем все матчи как интервалы в исходном тексте
     spans: List[Tuple[int, int, str, str]] = []  # (start, end, form, filename)
 
@@ -85,6 +98,9 @@ def apply_links_to_text(text: str, replacements: List[Tuple[str, str]]) -> str:
         pattern = re.escape(form)
         for m in re.finditer(pattern, text):
             start, end = m.span()
+
+            if overlaps_excluded(start, end):
+                continue
 
             # проверяем, не пересекается ли этот интервал с уже выбранными
             overlap = False
@@ -135,10 +151,10 @@ def link_persons_in_pages() -> None:
        - выбираем кандидатов,
        - считаем уникальные surface_forms,
        - оборачиваем их в [[...]].
-    5. Сохраняем новые заметки в data/pages_linked/.
+    5. Сохраняем новые заметки в data/obsidian/items.
     """
     pages_dir: Path = settings.pages_dir
-    out_dir: Path = settings.pages_linked_dir
+    out_dir: Path = settings.obsidian_items_dir
     out_dir.mkdir(parents=True, exist_ok=True)
 
     candidates = load_person_candidates()

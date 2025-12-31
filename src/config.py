@@ -10,7 +10,7 @@ class Settings(BaseSettings):
 
     # Paths
     project_root: Path = Path(__file__).resolve().parents[1]
-    pages_dir: Path = project_root / "data" / "pages_sample"
+    pages_dir: Path = project_root / "data" / "pages"
     pages_linked_dir: Path = project_root / "data" / "pages_linked"
     obsidian_persons_dir: Path = project_root / "data" / "obsidian" / "persons"
     obsidian_items_dir: Path = project_root / "data" / "obsidian" / "items"
