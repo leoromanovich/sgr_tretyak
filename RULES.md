@@ -62,6 +62,16 @@ llm:
   model: "models/Qwen/Qwen3-14B-FP8"
   max_tokens: 32768
   temperature: 0.2
+
+blocking:
+  year_bucket_size: 10                  # размер корзины по годам (десятилетие)
+  max_block_size: 200                   # максимум кандидатов в блоке
+  fallback_key: "last_name_first_name"  # более строгий ключ при слишком большом блоке
+  keys:
+    last_name_first_initial: true
+    last_name_patronymic_initial: true
+    last_name_year_bucket: true
+    last_name_first_name: true
 ```
 
 пути:
@@ -273,7 +283,7 @@ orchestrator.py — CLI с несколькими subcommands (через Typer)
 2.	cluster-persons
 •	читаешь всех PersonLocalNormalized с is_person=True, confidence>=0.8;
 •	строишь набор PersonCandidate;
-•	генерируешь кандидаты-пары блюм-фильтрами/блокингом;
+•	генерируешь кандидаты-пары через блокинг (ключи по фамилии+инициалам/году и т.п., см. config.yaml);
 •	для каждой пары запускаешь person_matcher;
 •	строишь кластеры (union-find);
 •	создаёшь GlobalPerson записи и сохраняешь в cache/persons_clusters.json.

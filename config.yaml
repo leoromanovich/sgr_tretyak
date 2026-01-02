@@ -7,3 +7,13 @@ llm:
   temperature: 0.2
 
 search: null
+
+blocking:
+  year_bucket_size: 10
+  max_block_size: 200
+  fallback_key: "last_name_first_name"
+  keys:
+    last_name_first_initial: true
+    last_name_patronymic_initial: true
+    last_name_year_bucket: true
+    last_name_first_name: true

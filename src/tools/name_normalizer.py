@@ -1,7 +1,8 @@
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Tuple
 from pathlib import Path
 import asyncio
 import json
+import re
 
 import frontmatter
 
@@ -11,6 +12,7 @@ from ..models import (
     NoteMetadata,
     NoteMetadataResponse,
     PersonExtractionResponse,
+    PersonLocalNormalized,
     PersonNormalizationResponse,
     )
 from .note_metadata import extract_note_metadata_from_file, extract_note_metadata_from_file_async
@@ -56,6 +58,127 @@ SYSTEM_PROMPT = """
    - Если есть сомнения — лучше оставить части имени null и повысить прозрачность reasoning в abbreviation_links.
 """
 
+TITLE_TOKENS = {
+    "граф",
+    "князь",
+    "княгиня",
+    "княжна",
+    "барон",
+    "баронесса",
+    "господин",
+    "госпожа",
+    "г-н",
+    "г-жа",
+    "гн",
+    "гжа",
+    "генерал",
+    "полковник",
+    "подполковник",
+    "майор",
+    "капитан",
+    "поручик",
+    "штабс",
+    "штабскапитан",
+    "адъютант",
+    "профессор",
+    "доктор",
+    "академик",
+    "священник",
+    "протоиерей",
+    "архимандрит",
+    "диакон",
+    "епископ",
+    "архиепископ",
+    "митрополит",
+    "патриарх",
+    }
+
+REFORM_TRANSLATION = str.maketrans({
+    "ё": "е",
+    "ѣ": "е",
+    "і": "и",
+    "ѳ": "ф",
+    "ѵ": "и",
+    "ѫ": "у",
+    "ѧ": "я",
+    })
+
+PUNCTUATION_RE = re.compile(r"[^\w\s-]+", re.UNICODE)
+NON_ALNUM_RE = re.compile(r"[^a-zа-я0-9]+", re.IGNORECASE)
+
+
+def normalize_name_tokens(value: Optional[str], remove_titles: bool = True) -> List[str]:
+    if not value:
+        return []
+    lowered = value.strip().lower().translate(REFORM_TRANSLATION)
+    lowered = PUNCTUATION_RE.sub(" ", lowered)
+    raw_tokens = re.split(r"\s+", lowered)
+    tokens: List[str] = []
+    for raw in raw_tokens:
+        cleaned = NON_ALNUM_RE.sub("", raw)
+        if not cleaned:
+            continue
+        if remove_titles and cleaned in TITLE_TOKENS:
+            continue
+        tokens.append(cleaned)
+    return tokens
+
+
+def normalize_name_for_blocking(value: Optional[str], remove_titles: bool = True) -> Optional[str]:
+    tokens = normalize_name_tokens(value, remove_titles=remove_titles)
+    if not tokens:
+        return None
+    return " ".join(tokens)
+
+
+def infer_name_parts_from_full_name(full_name: Optional[str]) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    tokens = normalize_name_tokens(full_name)
+    if not tokens:
+        return None, None, None
+    if len(tokens) >= 3:
+        first_name = tokens[0]
+        patronymic = tokens[1]
+        last_name = tokens[-1]
+    elif len(tokens) == 2:
+        first_name = tokens[0]
+        patronymic = None
+        last_name = tokens[1]
+    else:
+        first_name = None
+        patronymic = None
+        last_name = tokens[0]
+    return last_name, first_name, patronymic
+
+
+def initial_from_name(value: Optional[str]) -> Optional[str]:
+    if not value:
+        return None
+    return value[0]
+
+
+def enrich_person_for_blocking(person: PersonLocalNormalized) -> None:
+    inferred_last = inferred_first = inferred_patronymic = None
+    if person.normalized_full_name:
+        inferred_last, inferred_first, inferred_patronymic = infer_name_parts_from_full_name(
+            person.normalized_full_name
+            )
+    elif person.canonical_name_in_note:
+        inferred_last, inferred_first, inferred_patronymic = infer_name_parts_from_full_name(
+            person.canonical_name_in_note
+            )
+
+    last_source = person.name_parts.last_name or inferred_last
+    first_source = person.name_parts.first_name or inferred_first
+    patronymic_source = person.name_parts.patronymic or inferred_patronymic
+
+    normalized_last = normalize_name_for_blocking(last_source)
+    normalized_first = normalize_name_for_blocking(first_source, remove_titles=False)
+    normalized_patronymic = normalize_name_for_blocking(patronymic_source, remove_titles=False)
+
+    person.normalized_last_name = normalized_last
+    person.first_initial = initial_from_name(normalized_first)
+    person.patronymic_initial = initial_from_name(normalized_patronymic)
+
 
 def _build_normalizer_messages(
     note_id: str,
@@ -91,13 +214,16 @@ async def normalize_people_in_text_async(
     metadata: NoteMetadata,
     ) -> PersonNormalizationResponse:
     messages = _build_normalizer_messages(note_id, text, people_extraction, metadata)
-    return await chat_sgr_parse_async(
+    response = await chat_sgr_parse_async(
         messages=messages,
         model_cls=PersonNormalizationResponse,
         schema_name="name_normalizer",
         temperature=0.0,
         max_tokens=None,
         )
+    for person in response.people:
+        enrich_person_for_blocking(person)
+    return response
 
 
 def normalize_people_in_text(
@@ -107,13 +233,16 @@ def normalize_people_in_text(
     metadata: NoteMetadata,
     ) -> PersonNormalizationResponse:
     messages = _build_normalizer_messages(note_id, text, people_extraction, metadata)
-    return chat_sgr_parse(
+    response = chat_sgr_parse(
         messages=messages,
         model_cls=PersonNormalizationResponse,
         schema_name="name_normalizer",
         temperature=0.0,
         max_tokens=None,
         )
+    for person in response.people:
+        enrich_person_for_blocking(person)
+    return response
 
 
 def normalize_people_in_file(path: Path) -> PersonNormalizationResponse:

@@ -119,6 +119,18 @@ class PersonLocalNormalized(PersonLocal):
             "(например, 'Павел Дмитриевич Корин'). Если недостаточно данных — null."
         ),
         )
+    normalized_last_name: Optional[str] = Field(
+        None,
+        description="Нормализованная фамилия для блокинга (ё→е, дореформенные буквы и т.п.)",
+        )
+    first_initial: Optional[str] = Field(
+        None,
+        description="Инициал имени для блокинга (нормализованный)",
+        )
+    patronymic_initial: Optional[str] = Field(
+        None,
+        description="Инициал отчества для блокинга (нормализованный)",
+        )
     name_parts: NameParts = Field(
         default_factory=NameParts,
         description="Разложение имени на части, если возможно"
@@ -160,6 +172,18 @@ class PersonCandidate(BaseModel):
     name_parts: "NameParts" = Field(
         default_factory=lambda: NameParts(),
         description="Фамилия/имя/отчество, если выделены",
+        )
+    normalized_last_name: Optional[str] = Field(
+        None,
+        description="Нормализованная фамилия для блокинга",
+        )
+    first_initial: Optional[str] = Field(
+        None,
+        description="Инициал имени для блокинга",
+        )
+    patronymic_initial: Optional[str] = Field(
+        None,
+        description="Инициал отчества для блокинга",
         )
     note_year_context: Optional[int] = Field(
         None,
