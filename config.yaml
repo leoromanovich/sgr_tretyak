@@ -17,3 +17,11 @@ blocking:
     last_name_patronymic_initial: true
     last_name_year_bucket: true
     last_name_first_name: true
+
+embedding:
+  model_name: "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+  batch_size: 32
+  top_k: 12
+  index_type: "hnswlib"
+  use_mps: false
+  cache_path: "cache/embeddings"

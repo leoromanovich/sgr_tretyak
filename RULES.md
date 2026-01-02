@@ -72,7 +72,20 @@ blocking:
     last_name_patronymic_initial: true
     last_name_year_bucket: true
     last_name_first_name: true
+
+embedding:
+  model_name: "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+  batch_size: 32
+  top_k: 12
+  index_type: "hnswlib"                 # hnswlib | annoy | faiss (если подключён)
+  use_mps: false                        # MPS для Mac
+  cache_path: "cache/embeddings"
 ```
+
+Этап эмбеддингов используется перед LLM-матчингом персон: строим компактные
+мультиязычные эмбеддинги профилей кандидатов (ФИО, формы, год, сниппеты),
+индексируем их в ANN и ограничиваем пары ближайшими top_k соседями. Это резко
+снижает количество LLM-вызовов и позволяет работать локально на CPU/MPS.
 
 пути:
 •	PAGES_DIR = data/pages
