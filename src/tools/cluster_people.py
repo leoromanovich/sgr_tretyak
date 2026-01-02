@@ -6,7 +6,15 @@ from rich import print
 from tqdm.auto import tqdm
 
 from ..models import EpisodeRef, GlobalPerson, PersonCandidate, NameParts
+from .embedding_index import (
+    build_neighbor_pairs,
+    build_or_load_index,
+    load_embedding_config,
+    log_index_stats,
+    query_top_k,
+    )
 from .person_candidates import load_person_candidates
+from .person_matcher import match_candidates_async
 from .person_blocking import build_blocked_groups, load_blocking_config
 
 
@@ -133,46 +141,69 @@ async def cluster_people_async(
     id_to_candidate = {c.candidate_id: c for c in candidates}
     uf = DSU(len(candidates))
 
-    blocking_config = load_blocking_config()
-
     print(f"[bold]Всего кандидатов:[/bold] {len(candidates)}")
-    print("[bold]Строим блоки для сравнения...[/bold]")
 
-    blocks, block_stats = build_blocked_groups(candidates, blocking_config)
-    print(f"[bold]Количество блоков:[/bold] {block_stats.total_blocks}")
-    if block_stats.oversize_blocks:
+    embedding_config = load_embedding_config()
+    pairs: list[tuple[PersonCandidate, PersonCandidate]] = []
+
+    if embedding_config.top_k > 0:
         print(
-            "[yellow]Слишком большие блоки:[/yellow] "
-            f"{block_stats.oversize_blocks}, "
-            f"fallback блоков: {block_stats.fallback_blocks}, "
-            f"пропущено: {block_stats.skipped_blocks}"
+            "[bold]Строим индекс эмбеддингов...[/bold] "
+            f"(model={embedding_config.model_name}, top_k={embedding_config.top_k})"
             )
+        embeddings, index = build_or_load_index(candidates, embedding_config)
+        neighbors = query_top_k(
+            embeddings,
+            index,
+            embedding_config.top_k,
+            embedding_config.index_type,
+            )
+        log_index_stats(index, embedding_config.index_type, neighbors)
+        pairs_set = build_neighbor_pairs(
+            [c.candidate_id for c in candidates],
+            neighbors,
+            )
+        pairs = [(id_to_candidate[a], id_to_candidate[b]) for a, b in pairs_set]
+    else:
+        blocking_config = load_blocking_config()
+        print("[bold]Строим блоки для сравнения...[/bold]")
 
-    pairs_set: set[tuple[str, str]] = set()
-    for block in blocks:
-        block_size = len(block)
-        if block_size < 2:
-            continue
-        for i in range(block_size):
-            for j in range(i + 1, block_size):
-                left_id = block[i].candidate_id
-                right_id = block[j].candidate_id
-                if left_id == right_id:
-                    continue
-                pair_key = tuple(sorted((left_id, right_id)))
-                pairs_set.add(pair_key)
+        blocks, block_stats = build_blocked_groups(candidates, blocking_config)
+        print(f"[bold]Количество блоков:[/bold] {block_stats.total_blocks}")
+        if block_stats.oversize_blocks:
+            print(
+                "[yellow]Слишком большие блоки:[/yellow] "
+                f"{block_stats.oversize_blocks}, "
+                f"fallback блоков: {block_stats.fallback_blocks}, "
+                f"пропущено: {block_stats.skipped_blocks}"
+                )
 
-    pairs = [(id_to_candidate[a], id_to_candidate[b]) for a, b in pairs_set]
+        pairs_set: set[tuple[str, str]] = set()
+        for block in blocks:
+            block_size = len(block)
+            if block_size < 2:
+                continue
+            for i in range(block_size):
+                for j in range(i + 1, block_size):
+                    left_id = block[i].candidate_id
+                    right_id = block[j].candidate_id
+                    if left_id == right_id:
+                        continue
+                    pair_key = tuple(sorted((left_id, right_id)))
+                    pairs_set.add(pair_key)
+
+        pairs = [(id_to_candidate[a], id_to_candidate[b]) for a, b in pairs_set]
 
     total_pairs = len(candidates) * (len(candidates) - 1) // 2
     filtered_ratio = 1 - (len(pairs) / total_pairs) if total_pairs else 0.0
-    print(f"[bold]Потенциальных пар после блокинга:[/bold] {len(pairs)}")
+    print(f"[bold]Потенциальных пар после фильтрации:[/bold] {len(pairs)}")
     print(f"[bold]Отсечено пар:[/bold] {filtered_ratio:.2%}")
 
     print("[bold]Запускаем алгоритмический матчинг...[/bold]")
 
     same_person_links = 0
     compared_pairs = 0
+    llm_pairs: list[tuple[PersonCandidate, PersonCandidate]] = []
     if pairs:
         with tqdm(total=len(pairs), desc="Алгоритмический матчинг", unit="pair", leave=True) as pbar:
             for c1, c2 in pairs:
@@ -181,11 +212,36 @@ async def cluster_people_async(
                 if decision == "same_person":
                     uf.union(id_to_index[c1.candidate_id], id_to_index[c2.candidate_id])
                     same_person_links += 1
+                elif decision is None:
+                    llm_pairs.append((c1, c2))
                 pbar.update(1)
     else:
         print("[yellow]Нет пар для сравнения.[/yellow]")
 
-    print(f"[green]Готово:[/green] проверено {compared_pairs} пар, совпадений {same_person_links}.")
+    print(
+        f"[green]Готово:[/green] проверено {compared_pairs} пар, совпадений {same_person_links}."
+        )
+
+    llm_links = 0
+    if llm_pairs:
+        print(f"[bold]Запускаем LLM-матчинг:[/bold] {len(llm_pairs)} пар.")
+        sem = asyncio.Semaphore(max(1, match_workers))
+
+        async def _match_pair(c1: PersonCandidate, c2: PersonCandidate):
+            async with sem:
+                return c1, c2, await match_candidates_async(c1, c2)
+
+        tasks = [asyncio.create_task(_match_pair(c1, c2)) for c1, c2 in llm_pairs]
+        with tqdm(total=len(tasks), desc="LLM матчинг", unit="pair", leave=True) as pbar:
+            for task in asyncio.as_completed(tasks):
+                c1, c2, decision = await task
+                if decision.relation == "same_person" and decision.confidence >= conf_threshold:
+                    uf.union(id_to_index[c1.candidate_id], id_to_index[c2.candidate_id])
+                    llm_links += 1
+                pbar.update(1)
+
+    if llm_pairs:
+        print(f"[green]LLM-матчинг завершён:[/green] совпадений {llm_links}.")
 
     print("[bold]Строим кластеры...[/bold]")
 
