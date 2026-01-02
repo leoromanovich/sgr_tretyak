@@ -1,5 +1,5 @@
+import hashlib
 import re
-from pathlib import Path
 from typing import Dict, List
 
 import yaml
@@ -8,6 +8,10 @@ from rich import print
 from ..config import settings
 from ..models import GlobalPerson
 from .note_naming import build_note_filename
+
+MAX_PERSON_FILENAME_LEN = 150
+HASH_SUFFIX_LEN = 8
+
 
 def filename_from_full_name(full_name: str) -> str:
     """
@@ -25,7 +29,18 @@ def filename_from_full_name(full_name: str) -> str:
     for ch in ['/', '\\', ':', '*', '?', '"', '<', '>', '|']:
         name = name.replace(ch, '')
 
-    return name + ".md"
+    if not name:
+        name = "person"
+
+    if len(name) <= MAX_PERSON_FILENAME_LEN:
+        return name + ".md"
+
+    digest = hashlib.sha1(name.encode("utf-8")).hexdigest()[:HASH_SUFFIX_LEN]
+    trim_len = max(1, MAX_PERSON_FILENAME_LEN - HASH_SUFFIX_LEN - 1)
+    trimmed = name[:trim_len].rstrip("_")
+    if not trimmed:
+        trimmed = "person"
+    return f"{trimmed}_{digest}.md"
 
 
 def render_global_person_md(person: GlobalPerson, note_link_map: Dict[str, str]) -> str:
