@@ -20,4 +20,5 @@ dependencies = [
     "typer>=0.21.0",
     "tqdm>=4.66.0",
     "pytest>=9.0.2",
+    "transformers>=4.57.3",
 ]
