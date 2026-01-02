@@ -6,8 +6,8 @@ from rich import print
 from tqdm.auto import tqdm
 
 from ..models import EpisodeRef, GlobalPerson, PersonCandidate, NameParts
-from .blocking import block_pairs
 from .person_candidates import load_person_candidates
+from .person_blocking import build_blocked_groups, load_blocking_config
 
 
 def normalize_token(value: Optional[str]) -> Optional[str]:
@@ -130,13 +130,44 @@ async def cluster_people_async(
         raise RuntimeError("Нет кандидатов (запусти scan-people).")
 
     id_to_index = {c.candidate_id: idx for idx, c in enumerate(candidates)}
+    id_to_candidate = {c.candidate_id: c for c in candidates}
     uf = DSU(len(candidates))
 
-    print(f"[bold]Всего кандидатов:[/bold] {len(candidates)}")
-    print("[bold]Строим пары для сравнения...[/bold]")
+    blocking_config = load_blocking_config()
 
-    pairs = block_pairs(candidates)
-    print(f"[bold]Потенциальных пар:[/bold] {len(pairs)}")
+    print(f"[bold]Всего кандидатов:[/bold] {len(candidates)}")
+    print("[bold]Строим блоки для сравнения...[/bold]")
+
+    blocks, block_stats = build_blocked_groups(candidates, blocking_config)
+    print(f"[bold]Количество блоков:[/bold] {block_stats.total_blocks}")
+    if block_stats.oversize_blocks:
+        print(
+            "[yellow]Слишком большие блоки:[/yellow] "
+            f"{block_stats.oversize_blocks}, "
+            f"fallback блоков: {block_stats.fallback_blocks}, "
+            f"пропущено: {block_stats.skipped_blocks}"
+            )
+
+    pairs_set: set[tuple[str, str]] = set()
+    for block in blocks:
+        block_size = len(block)
+        if block_size < 2:
+            continue
+        for i in range(block_size):
+            for j in range(i + 1, block_size):
+                left_id = block[i].candidate_id
+                right_id = block[j].candidate_id
+                if left_id == right_id:
+                    continue
+                pair_key = tuple(sorted((left_id, right_id)))
+                pairs_set.add(pair_key)
+
+    pairs = [(id_to_candidate[a], id_to_candidate[b]) for a, b in pairs_set]
+
+    total_pairs = len(candidates) * (len(candidates) - 1) // 2
+    filtered_ratio = 1 - (len(pairs) / total_pairs) if total_pairs else 0.0
+    print(f"[bold]Потенциальных пар после блокинга:[/bold] {len(pairs)}")
+    print(f"[bold]Отсечено пар:[/bold] {filtered_ratio:.2%}")
 
     print("[bold]Запускаем алгоритмический матчинг...[/bold]")
 
