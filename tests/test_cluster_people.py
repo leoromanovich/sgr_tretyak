@@ -199,3 +199,23 @@ def test_far_years_same_surface_forms_returns_different():
         year=1950,
     )
     assert cheap_decision(c1, c2) == "different_person"
+
+
+def test_same_first_name_surface_form_without_last_name():
+    c1 = make_candidate(
+        candidate_id="1:a",
+        last_name="Шишкин",
+        first_name="Иван",
+        canonical="Иван Шишкин",
+        forms=["Иван"],
+        year=1883,
+    )
+    c2 = make_candidate(
+        candidate_id="2:b",
+        last_name="Достоевский",
+        first_name="Фёдор",
+        canonical="Фёдор Достоевский",
+        forms=["Иван"],
+        year=1883,
+    )
+    assert cheap_decision(c1, c2) is None

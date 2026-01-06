@@ -20,6 +20,9 @@ from ..models import (
     NameParts,
     )
 
+CACHE_DIR = settings.project_root / "cache"
+CLUSTERS_CACHE_PATH = CACHE_DIR / "persons_clusters.json"
+
 
 def _log_match_timeout(c1: PersonCandidate, c2: PersonCandidate, error: Exception) -> None:
     """
@@ -39,6 +42,96 @@ def _log_match_timeout(c1: PersonCandidate, c2: PersonCandidate, error: Exceptio
     trace_path = trace_dir / f"match_timeout_{timestamp}_{c1.candidate_id}_{c2.candidate_id}.json"
     with open(trace_path, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
+
+
+def save_clusters_to_cache(
+    persons: List[GlobalPerson],
+    conf_threshold: float,
+    match_workers: int,
+    use_match_analysis: bool,
+    cache_path: Path = CLUSTERS_CACHE_PATH,
+    ) -> None:
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "generated_at": datetime.now().isoformat(),
+        "conf_threshold": conf_threshold,
+        "match_workers": match_workers,
+        "total_clusters": len(persons),
+        "use_match_analysis": use_match_analysis,
+        "persons": [p.model_dump() for p in persons],
+        }
+    with open(cache_path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+    print(
+        f"[green]Сохранено в кэш:[/green] {cache_path.relative_to(settings.project_root)} "
+        f"(use_match_analysis={use_match_analysis})"
+        )
+
+
+def load_clusters_from_cache(cache_path: Path = CLUSTERS_CACHE_PATH) -> tuple[List[GlobalPerson], dict]:
+    if not cache_path.exists():
+        raise FileNotFoundError(cache_path)
+    with open(cache_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    persons_data = data.get("persons")
+    if not isinstance(persons_data, list):
+        raise RuntimeError(f"Некорректный формат кэша: {cache_path}")
+    persons = [GlobalPerson.model_validate(item) for item in persons_data]
+    meta = {
+        "generated_at": data.get("generated_at"),
+        "conf_threshold": data.get("conf_threshold"),
+        "match_workers": data.get("match_workers"),
+        "total_clusters": data.get("total_clusters", len(persons)),
+        "use_match_analysis": data.get("use_match_analysis", False),
+    }
+    return persons, meta
+
+
+def load_or_cluster_global_persons(
+    conf_threshold: float = 0.8,
+    match_workers: int = 8,
+    use_match_analysis: bool = False,
+    cache_path: Path = CLUSTERS_CACHE_PATH,
+    strict_match: bool = False,
+    ) -> List[GlobalPerson]:
+    try:
+        persons, meta = load_clusters_from_cache(cache_path)
+        cached_conf = meta.get("conf_threshold")
+        cached_analysis = bool(meta.get("use_match_analysis"))
+        mismatches: List[str] = []
+        if cached_conf is not None and abs(cached_conf - conf_threshold) > 1e-6:
+            mismatches.append(
+                f"conf_threshold={cached_conf} (запрошено {conf_threshold})"
+                )
+        if cached_analysis != use_match_analysis:
+            mismatches.append(
+                f"use_match_analysis={cached_analysis} (запрошено {use_match_analysis})"
+                )
+
+        if mismatches:
+            msg = "; ".join(mismatches)
+            if strict_match:
+                print(f"[yellow]Несовпадение параметров кэша ({msg}) — пересчитываем.[/yellow]")
+                return cluster_people(
+                    conf_threshold=conf_threshold,
+                    match_workers=match_workers,
+                    use_match_analysis=use_match_analysis,
+                    )
+            print(f"[yellow]Предупреждение: используем кэш с параметрами {msg}.[/yellow]")
+
+        print(
+            f"[green]Используем кэш кластеров:[/green] "
+            f"{cache_path.relative_to(settings.project_root)} "
+            f"(clusters={meta.get('total_clusters')})"
+            )
+        return persons
+    except FileNotFoundError:
+        print("[yellow]Кэш кластеров не найден — запускаем кластеризацию.[/yellow]")
+    return cluster_people(
+        conf_threshold=conf_threshold,
+        match_workers=match_workers,
+        use_match_analysis=use_match_analysis,
+        )
 
 from .embedding_index import (
     build_neighbor_pairs,
@@ -60,6 +153,24 @@ def normalize_token(value: Optional[str]) -> Optional[str]:
 
 def normalize_forms(forms: List[str]) -> set[str]:
     return {token for token in (normalize_token(f) for f in forms) if token}
+
+
+def _meaningful_form_overlap(
+    forms1: set[str],
+    forms2: set[str],
+    c1: PersonCandidate,
+    c2: PersonCandidate,
+    ) -> set[str]:
+    overlap = forms1 & forms2
+    if not overlap:
+        return set()
+    last1 = _normalized_last_name(c1)
+    last2 = _normalized_last_name(c2)
+    meaningful: set[str] = set()
+    for token in overlap:
+        if (last1 and last1 in token) or (last2 and last2 in token):
+            meaningful.add(token)
+    return meaningful
 
 
 @dataclass
@@ -118,7 +229,15 @@ def _normalized_last_name(candidate: PersonCandidate) -> Optional[str]:
         normalized = normalize_token(candidate.normalized_last_name)
         if normalized:
             return normalized
-    return normalize_token(candidate.name_parts.last_name)
+    value = normalize_token(candidate.name_parts.last_name)
+    if value:
+        return value
+    if candidate.canonical_name_in_note:
+        parts = [normalize_token(p) for p in re.split(r"[\s,/]+", candidate.canonical_name_in_note) if p]
+        parts = [p for p in parts if p]
+        if parts:
+            return parts[-1]
+    return None
 
 
 def _normalized_first_name(candidate: PersonCandidate) -> Optional[str]:
@@ -196,7 +315,7 @@ def _pair_similarity_score(
     forms1 = normalize_forms(c1.surface_forms)
     forms2 = normalize_forms(c2.surface_forms)
     if forms1 and forms2:
-        overlap = forms1 & forms2
+        overlap = _meaningful_form_overlap(forms1, forms2, c1, c2)
         if overlap:
             score += 0.75 if len(overlap) > 1 else 0.5
 
@@ -301,7 +420,7 @@ def cheap_decision(c1: PersonCandidate, c2: PersonCandidate) -> Optional[str]:
     forms1 = normalize_forms(c1.surface_forms)
     forms2 = normalize_forms(c2.surface_forms)
     if forms1 and forms2:
-        overlap = forms1 & forms2
+        overlap = _meaningful_form_overlap(forms1, forms2, c1, c2)
         if overlap:
             if not year1 or not year2 or abs(year1 - year2) <= 15:
                 return "same_person"
@@ -348,6 +467,7 @@ class DSU:
 async def cluster_people_async(
     conf_threshold: float = 0.8,
     match_workers: int = 8,
+    use_match_analysis: bool = False,
     ) -> List[GlobalPerson]:
     candidates = load_person_candidates()
     if not candidates:
@@ -458,7 +578,11 @@ async def cluster_people_async(
         async def _match_pair(c1: PersonCandidate, c2: PersonCandidate):
             async with sem:
                 try:
-                    decision = await match_candidates_async(c1, c2)
+                    decision = await match_candidates_async(
+                        c1,
+                        c2,
+                        use_analysis=use_match_analysis,
+                        )
                 except APITimeoutError as exc:
                     _log_match_timeout(c1, c2, exc)
                     print(
@@ -471,7 +595,6 @@ async def cluster_people_async(
                         right_candidate_id=c2.candidate_id,
                         relation="different_person",
                         confidence=0.0,
-                        reasoning="timeout_fallback",
                     )
                 return c1, c2, decision
 
@@ -562,10 +685,22 @@ async def cluster_people_async(
     return global_persons
 
 
-def cluster_people(conf_threshold: float = 0.8, match_workers: int = 8) -> List[GlobalPerson]:
-    return asyncio.run(
+def cluster_people(
+    conf_threshold: float = 0.8,
+    match_workers: int = 8,
+    use_match_analysis: bool = False,
+    ) -> List[GlobalPerson]:
+    persons = asyncio.run(
         cluster_people_async(
             conf_threshold=conf_threshold,
             match_workers=match_workers,
+            use_match_analysis=use_match_analysis,
             )
         )
+    save_clusters_to_cache(
+        persons,
+        conf_threshold=conf_threshold,
+        match_workers=match_workers,
+        use_match_analysis=use_match_analysis,
+        )
+    return persons

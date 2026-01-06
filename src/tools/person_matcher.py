@@ -1,18 +1,21 @@
-from ..llm_client import chat_sgr_parse, chat_sgr_parse_async
+from ..llm_client import chat_raw, chat_raw_async, chat_sgr_parse, chat_sgr_parse_async
 from ..llm_prompts import add_no_think
 from ..models import PersonCandidate, PersonMatchDecision
 
 
-SYSTEM_PROMPT = """
-Ты анализируешь двух кандидатов на одну и ту же историческую персону.
+ANALYSIS_SYSTEM_PROMPT = """
+Ты делаешь короткое аналитическое описание для пары кандидатов.
 
-Тебе даны:
-- normalized_full_name (если есть),
-- canonical_name_in_note,
-- surface_forms,
-- разложение имени по частям (фамилия, имя, отчество),
-- год из контекста заметки (если есть),
-- confidence.
+Нужно:
+- выделить, что говорит в пользу того, что это один человек;
+- указать признаки, что они разные;
+- дать грубую оценку (likely_same / likely_different / uncertain).
+
+Не выдай финальный вердикт, просто подготовь заметки (до ~200 токенов).
+"""
+
+DECISION_SYSTEM_PROMPT = """
+Ты анализируешь двух кандидатов на одну и ту же историческую персону.
 
 Укажи отношение:
 1. same_person — если это однозначно один человек.
@@ -21,7 +24,7 @@ SYSTEM_PROMPT = """
 
 Правила:
 - НЕ использовать внешние знания.
-- Основываться только на данных кандидатов.
+- Основываться только на данных кандидатов и аналитических заметках.
 - Если normalized_full_name совпадает полностью — скорее всего same_person.
 - Если normalized_full_name отсутствует, но совпадает фамилия, имя и отчество — same_person.
 - Если есть совпадение фамилии и имени, но отчество различается — different_person.
@@ -33,8 +36,8 @@ SYSTEM_PROMPT = """
 """
 
 
-def _build_match_messages(c1: PersonCandidate, c2: PersonCandidate):
-    user_content = f"""
+def _build_base_user_content(c1: PersonCandidate, c2: PersonCandidate) -> str:
+    return f"""
 Сравни двух кандидатов:
 
 [LEFT]
@@ -53,14 +56,65 @@ name_parts: {c2.name_parts}
 year: {c2.note_year_context}
 confidence: {c2.person_confidence}
 """
+
+
+def _build_analysis_messages(c1: PersonCandidate, c2: PersonCandidate):
     return [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": ANALYSIS_SYSTEM_PROMPT},
+        {"role": "user", "content": add_no_think(_build_base_user_content(c1, c2))},
+        ]
+
+
+def _build_match_messages(
+    c1: PersonCandidate,
+    c2: PersonCandidate,
+    analysis_notes: str | None = None,
+    ):
+    user_content = _build_base_user_content(c1, c2)
+    if analysis_notes:
+        user_content += f"""
+[ANALYSIS_NOTES]
+{analysis_notes.strip()}
+"""
+    return [
+        {"role": "system", "content": DECISION_SYSTEM_PROMPT},
         {"role": "user", "content": add_no_think(user_content)},
         ]
 
 
-async def match_candidates_async(c1: PersonCandidate, c2: PersonCandidate) -> PersonMatchDecision:
-    messages = _build_match_messages(c1, c2)
+async def _generate_analysis_text_async(
+    c1: PersonCandidate,
+    c2: PersonCandidate,
+    max_tokens: int = 200,
+    ) -> str:
+    resp = await chat_raw_async(
+        messages=_build_analysis_messages(c1, c2),
+        temperature=0.0,
+        max_tokens=max_tokens,
+        )
+    content = resp["message"].content or ""
+    return content.strip()
+
+
+def _generate_analysis_text(c1: PersonCandidate, c2: PersonCandidate, max_tokens: int = 200) -> str:
+    resp = chat_raw(
+        messages=_build_analysis_messages(c1, c2),
+        temperature=0.0,
+        max_tokens=max_tokens,
+        )
+    content = resp["message"].content or ""
+    return content.strip()
+
+
+async def match_candidates_async(
+    c1: PersonCandidate,
+    c2: PersonCandidate,
+    use_analysis: bool = False,
+    ) -> PersonMatchDecision:
+    analysis_text: str | None = None
+    if use_analysis:
+        analysis_text = await _generate_analysis_text_async(c1, c2)
+    messages = _build_match_messages(c1, c2, analysis_text)
     return await chat_sgr_parse_async(
         messages=messages,
         model_cls=PersonMatchDecision,
@@ -70,8 +124,15 @@ async def match_candidates_async(c1: PersonCandidate, c2: PersonCandidate) -> Pe
         )
 
 
-def match_candidates(c1: PersonCandidate, c2: PersonCandidate) -> PersonMatchDecision:
-    messages = _build_match_messages(c1, c2)
+def match_candidates(
+    c1: PersonCandidate,
+    c2: PersonCandidate,
+    use_analysis: bool = False,
+    ) -> PersonMatchDecision:
+    analysis_text: str | None = None
+    if use_analysis:
+        analysis_text = _generate_analysis_text(c1, c2)
+    messages = _build_match_messages(c1, c2, analysis_text)
     return chat_sgr_parse(
         messages=messages,
         model_cls=PersonMatchDecision,

@@ -8,7 +8,7 @@ from .tools.people_extractor import extract_people_from_file
 from .tools.name_normalizer import normalize_people_in_file
 from .tools.scan_people import scan_people_over_pages
 from .tools.person_candidates import debug_print_candidates
-from .tools.cluster_people import cluster_people
+from .tools.cluster_people import cluster_people, load_or_cluster_global_persons
 from .tools.person_note_generator import write_person_notes
 from .tools.note_linker import link_persons_in_pages
 from .utils.logging_utils import setup_file_logging
@@ -133,29 +133,62 @@ def cluster(
         help="Одновременных запросов к LLM при сравнении пар",
         min=1,
         ),
+    use_match_analysis: bool = typer.Option(
+        False,
+        "--use-match-analysis",
+        help="Включить дополнительный reasoning-проход для LLM матчинга",
+        ),
     ):
     """
     Запустить кластеризацию персон по всему пулу заметок.
     """
-    clusters = cluster_people(conf_threshold=conf_threshold, match_workers=match_workers)
+    clusters = cluster_people(
+        conf_threshold=conf_threshold,
+        match_workers=match_workers,
+        use_match_analysis=use_match_analysis,
+        )
     for gp in clusters:
         print(f"{gp.global_person_id}: {gp.canonical_full_name!r} ({len(gp.members)} entries)")
 
 
 @app.command()
-def gen_person_notes(conf_threshold: float = typer.Option(0.8)):
+def gen_person_notes(
+    conf_threshold: float = typer.Option(0.8),
+    use_match_analysis: bool = typer.Option(
+        False,
+        "--use-match-analysis",
+        help="Указать, что кэш собран с доп. reasoning-проходом",
+        ),
+    ):
     """
     Сгенерировать Obsidian-заметки для глобальных персон
     """
-    persons = cluster_people(conf_threshold=conf_threshold)
+    persons = load_or_cluster_global_persons(
+        conf_threshold=conf_threshold,
+        use_match_analysis=use_match_analysis,
+        )
     write_person_notes(persons)
 
 @app.command()
-def link_persons():
+def link_persons(
+    conf_threshold: float = typer.Option(
+        0.8,
+        "--conf-threshold",
+        help="Какой порог совпадения ожидается у кэша кластеров",
+        ),
+    use_match_analysis: bool = typer.Option(
+        False,
+        "--use-match-analysis",
+        help="Указать, что кэш кластеров собран с доп. reasoning-проходом",
+        ),
+    ):
     """
     Проставить ссылки на людей в заметках и сохранить результат в data/obsidian/items.
     """
-    link_persons_in_pages()
+    link_persons_in_pages(
+        conf_threshold=conf_threshold,
+        use_match_analysis=use_match_analysis,
+        )
 
 
 if __name__ == "__main__":

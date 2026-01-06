@@ -11,7 +11,7 @@ from rich import print as rich_print
 
 from src.config import settings
 
-LLM_CONCURRENCY_LIMIT = 16
+LLM_CONCURRENCY_LIMIT = 32 
 LLM_TIMEOUT_RETRY_DELAY_SECONDS = 2.0
 
 client = OpenAI(

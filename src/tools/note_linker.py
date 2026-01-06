@@ -6,7 +6,7 @@ from rich import print
 
 from ..config import settings
 from ..models import GlobalPerson, PersonCandidate
-from .cluster_people import cluster_people
+from .cluster_people import load_or_cluster_global_persons
 from .note_naming import build_note_filename
 from .person_candidates import load_person_candidates
 from .person_note_generator import filename_from_full_name
@@ -180,7 +180,10 @@ def apply_links_to_text(text: str, replacements: List[Tuple[str, str]]) -> str:
     return "".join(result_parts)
 
 
-def link_persons_in_pages() -> None:
+def link_persons_in_pages(
+    conf_threshold: float = 0.8,
+    use_match_analysis: bool = False,
+    ) -> None:
     """
     Основной процесс:
     1. Загружаем кандидатов.
@@ -204,7 +207,10 @@ def link_persons_in_pages() -> None:
 
     # 1. Кластеры глобальных персон
     print("[bold]Кластеризация для линковки...[/bold]")
-    global_persons = cluster_people(conf_threshold=0.8)
+    global_persons = load_or_cluster_global_persons(
+        conf_threshold=conf_threshold,
+        use_match_analysis=use_match_analysis,
+        )
 
     # 2. Мап candidate_id -> имя файла персоны
     cid_to_file = build_candidate_to_file_map(global_persons)
