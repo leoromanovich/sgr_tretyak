@@ -238,6 +238,10 @@ class GlobalPerson(BaseModel):
 class PersonMatchDecision(BaseModel):
     left_candidate_id: str
     right_candidate_id: str
+    # reasoning: str = Field(
+    #     ...,
+    #     max_length=50,
+    #     description="Причина решения одним предложением не более, чем в 10 слов.",
+    # )
     relation: Literal["same_person", "different_person", "unknown"]
     confidence: float = Field(..., ge=0.0, le=1.0)
-    reasoning: str

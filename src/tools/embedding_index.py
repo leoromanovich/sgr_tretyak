@@ -10,6 +10,7 @@ from typing import List, Optional, Sequence
 import numpy as np
 import yaml
 from rich import print
+from tqdm.auto import tqdm
 
 from ..config import settings
 from ..models import PersonCandidate
@@ -153,19 +154,29 @@ def _encode_profiles(profiles: Sequence[str], config: EmbeddingConfig) -> np.nda
     batch_size = max(1, config.batch_size)
 
     with torch.no_grad():
-        for start in range(0, len(profiles), batch_size):
-            batch = profiles[start:start + batch_size]
-            encoded = tokenizer(
-                batch,
-                padding=True,
-                truncation=True,
-                return_tensors="pt",
-                )
-            encoded = {k: v.to(device) for k, v in encoded.items()}
-            model_output = model(**encoded)
-            pooled = _mean_pooling(model_output, encoded["attention_mask"])
-            pooled = torch.nn.functional.normalize(pooled, p=2, dim=1)
-            embeddings.append(pooled.cpu().numpy().astype(np.float32))
+        progress = tqdm(
+            total=len(profiles),
+            desc="Получение эмбеддингов",
+            unit="profile",
+            leave=True,
+            )
+        try:
+            for start in range(0, len(profiles), batch_size):
+                batch = profiles[start:start + batch_size]
+                encoded = tokenizer(
+                    batch,
+                    padding=True,
+                    truncation=True,
+                    return_tensors="pt",
+                    )
+                encoded = {k: v.to(device) for k, v in encoded.items()}
+                model_output = model(**encoded)
+                pooled = _mean_pooling(model_output, encoded["attention_mask"])
+                pooled = torch.nn.functional.normalize(pooled, p=2, dim=1)
+                embeddings.append(pooled.cpu().numpy().astype(np.float32))
+                progress.update(len(batch))
+        finally:
+            progress.close()
 
     return np.vstack(embeddings)
 
@@ -400,4 +411,3 @@ def log_index_stats(
     avg_neighbors = total_neighbors / len(neighbors) if neighbors else 0.0
     print(f"[bold]Размер индекса:[/bold] {_index_size(index_type, index)}")
     print(f"[bold]Среднее число соседей:[/bold] {avg_neighbors:.2f}")
-

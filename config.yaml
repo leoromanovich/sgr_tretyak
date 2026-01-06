@@ -25,3 +25,8 @@ embedding:
   index_type: "hnswlib"
   use_mps: false
   cache_path: "cache/embeddings"
+
+matching:
+  min_person_confidence: 0.35
+  max_year_diff: 25
+  min_pair_score: 1.5

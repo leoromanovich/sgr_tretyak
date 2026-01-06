@@ -52,7 +52,6 @@ canonical_name: {c2.canonical_name_in_note}
 name_parts: {c2.name_parts}
 year: {c2.note_year_context}
 confidence: {c2.person_confidence}
-/no_think
 """
     return [
         {"role": "system", "content": SYSTEM_PROMPT},

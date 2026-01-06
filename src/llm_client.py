@@ -1,23 +1,30 @@
 import asyncio
+import copy
 import json
 import os
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Type, TypeVar
 
-from openai import AsyncOpenAI, OpenAI
+from openai import APITimeoutError, AsyncOpenAI, OpenAI
 from pydantic import BaseModel, ValidationError
+from rich import print as rich_print
 
 from src.config import settings
 
 LLM_CONCURRENCY_LIMIT = 16
+LLM_TIMEOUT_RETRY_DELAY_SECONDS = 2.0
 
 client = OpenAI(
     base_url=settings.openai_base_url,
     api_key=settings.openai_api_key,
+    timeout=settings.llm_request_timeout,
+    max_retries=settings.llm_client_max_retries,
     )
 async_client = AsyncOpenAI(
     base_url=settings.openai_base_url,
     api_key=settings.openai_api_key,
+    timeout=settings.llm_request_timeout,
+    max_retries=settings.llm_client_max_retries,
     )
 _llm_semaphore = asyncio.Semaphore(LLM_CONCURRENCY_LIMIT)
 
@@ -57,11 +64,31 @@ async def chat_raw_async(
     if tool_choice is not None:
         kwargs["tool_choice"] = tool_choice
 
-    if max_tokens is not None:
-        kwargs["max_tokens"] = max_tokens
+    effective_max_tokens = max_tokens
+    if effective_max_tokens is None:
+        effective_max_tokens = settings.llm_max_output_tokens
 
-    async with _llm_semaphore:
-        resp = await async_client.chat.completions.create(**kwargs)
+    if effective_max_tokens is not None:
+        kwargs["max_tokens"] = effective_max_tokens
+
+    timeout_retries = max(0, settings.llm_timeout_retries)
+    attempt = 0
+    while True:
+        try:
+            async with _llm_semaphore:
+                resp = await async_client.chat.completions.create(**kwargs)
+            break
+        except APITimeoutError as exc:
+            _log_timeout_request(kwargs, attempt, timeout_retries)
+            if attempt >= timeout_retries:
+                raise exc
+            delay = LLM_TIMEOUT_RETRY_DELAY_SECONDS
+            rich_print(
+                f"[yellow]LLM timeout (attempt {attempt + 1}/{timeout_retries + 1}), "
+                f"retrying in {delay:.1f}s...[/yellow]"
+                )
+            await asyncio.sleep(delay)
+            attempt += 1
     message = resp.choices[0].message
 
     return {
@@ -182,3 +209,22 @@ def chat_sgr_parse(
         )
 def _should_trace() -> bool:
     return os.getenv("SGR_LOGGING") == "DEBUG"
+
+
+def _log_timeout_request(payload: Dict[str, Any], attempt: int, timeout_retries: int) -> None:
+    """
+    Записывает полный payload LLM-запроса, если хотя бы одна попытка завершилась таймаутом.
+    """
+    trace_dir = settings.project_root / "log_tracing" / "timeouts"
+    trace_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    safe_payload = copy.deepcopy(payload)
+    record = {
+        "timestamp": timestamp,
+        "attempt": attempt + 1,
+        "max_attempts": timeout_retries + 1,
+        "request": safe_payload,
+    }
+    trace_path = trace_dir / f"timeout_{timestamp}_attempt{attempt + 1}.json"
+    with open(trace_path, "w", encoding="utf-8") as f:
+        json.dump(record, f, ensure_ascii=False, indent=2, default=str)
