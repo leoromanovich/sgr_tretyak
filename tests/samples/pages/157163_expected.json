@@ -1,0 +1,61 @@
+{
+  "note_id": "157163",
+  "expected_people": [
+    {
+      "name_pattern": "Дягилев",
+      "is_person": true,
+      "min_confidence": 0.8
+    },
+    {
+      "name_pattern": "Вацлав.*Нижинский|Нижинский.*Вацлав",
+      "is_person": true,
+      "min_confidence": 0.9
+    },
+    {
+      "name_pattern": "Альфонсо\\s+XIII",
+      "is_person": true,
+      "min_confidence": 0.8
+    },
+    {
+      "name_pattern": "Григорьев",
+      "is_person": true,
+      "min_confidence": 0.6
+    },
+    {
+      "name_pattern": "Чарли.*Чаплин|Чаплин.*Чарли",
+      "is_person": true,
+      "min_confidence": 0.9
+    },
+    {
+      "name_pattern": "М\\.Ф\\.\\s*Ларионов",
+      "is_person": true,
+      "min_confidence": 0.8
+    },
+    {
+      "name_pattern": "А\\.К\\.\\s*Томилина",
+      "is_person": true,
+      "min_confidence": 0.8
+    },
+    {
+      "name_pattern": "Э\\.\\s*Пёрвиенс",
+      "is_person": true,
+      "min_confidence": 0.7
+    },
+    {
+      "name_pattern": "Э\\.\\s*Кэмпбелл",
+      "is_person": true,
+      "min_confidence": 0.7
+    },
+    {
+      "name_pattern": "Ш\\.\\s*Мино",
+      "is_person": true,
+      "min_confidence": 0.7
+    },
+    {
+      "name_pattern": "Л\\.\\s*Лопухова",
+      "is_person": true,
+      "min_confidence": 0.7
+    }
+  ],
+  "forbidden_patterns": []
+}

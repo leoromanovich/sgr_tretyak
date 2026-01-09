@@ -15,7 +15,11 @@ from ..models import (
     PersonLocalNormalized,
     PersonNormalizationResponse,
     )
-from .note_metadata import extract_note_metadata_from_file, extract_note_metadata_from_file_async
+from .note_metadata import (
+    extract_note_metadata_from_file,
+    extract_note_metadata_from_file_async,
+    validate_metadata,
+)
 from .people_extractor import (
     extract_people_from_text,
     extract_people_from_text_async,
@@ -245,6 +249,48 @@ def normalize_people_in_text(
     return response
 
 
+def _normalize_pipeline(
+    note_id: str,
+    body: str,
+    metadata: NoteMetadata,
+    ) -> Tuple[PersonNormalizationResponse, List[str]]:
+    metadata, warnings = validate_metadata(metadata, body)
+    if metadata.reliability and metadata.reliability < 0.5:
+        warnings.append(f"Low metadata reliability: {metadata.reliability}")
+
+    people_extraction = extract_people_from_text(note_id=note_id, text=body, metadata=metadata)
+    response = normalize_people_in_text(
+        note_id=note_id,
+        text=body,
+        people_extraction=people_extraction,
+        metadata=metadata,
+        )
+    return response, warnings
+
+
+async def _normalize_pipeline_async(
+    note_id: str,
+    body: str,
+    metadata: NoteMetadata,
+    ) -> Tuple[PersonNormalizationResponse, List[str]]:
+    metadata, warnings = validate_metadata(metadata, body)
+    if metadata.reliability and metadata.reliability < 0.5:
+        warnings.append(f"Low metadata reliability: {metadata.reliability}")
+
+    people_extraction = await extract_people_from_text_async(
+        note_id=note_id,
+        text=body,
+        metadata=metadata,
+        )
+    response = await normalize_people_in_text_async(
+        note_id=note_id,
+        text=body,
+        people_extraction=people_extraction,
+        metadata=metadata,
+        )
+    return response, warnings
+
+
 def normalize_people_in_file(path: Path) -> PersonNormalizationResponse:
     """
     Высокоуровневая функция:
@@ -252,25 +298,26 @@ def normalize_people_in_file(path: Path) -> PersonNormalizationResponse:
     2) первичный people_extractor,
     3) нормализация имён.
     """
-    # 1. метаданные
     meta_resp: NoteMetadataResponse = extract_note_metadata_from_file(path)
     metadata = meta_resp.metadata
 
-    # 2. тело заметки
     post = frontmatter.load(path)
     body = post.content
     note_id = path.stem
 
-    # 3. первичное извлечение людей
-    people_extraction = extract_people_from_text(note_id=note_id, text=body, metadata=metadata)
+    response, _ = _normalize_pipeline(note_id=note_id, body=body, metadata=metadata)
+    return response
 
-    # 4. нормализация
-    return normalize_people_in_text(
-        note_id=note_id,
-        text=body,
-        people_extraction=people_extraction,
-        metadata=metadata,
-        )
+
+def normalize_people_in_file_with_warnings(path: Path) -> Tuple[PersonNormalizationResponse, List[str]]:
+    meta_resp: NoteMetadataResponse = extract_note_metadata_from_file(path)
+    metadata = meta_resp.metadata
+
+    post = frontmatter.load(path)
+    body = post.content
+    note_id = path.stem
+
+    return _normalize_pipeline(note_id=note_id, body=body, metadata=metadata)
 
 
 async def normalize_people_in_file_async(path: Path) -> PersonNormalizationResponse:
@@ -284,15 +331,18 @@ async def normalize_people_in_file_async(path: Path) -> PersonNormalizationRespo
     body = post.content
     note_id = path.stem
 
-    people_extraction = await extract_people_from_text_async(
-        note_id=note_id,
-        text=body,
-        metadata=metadata,
-        )
+    response, _ = await _normalize_pipeline_async(note_id=note_id, body=body, metadata=metadata)
+    return response
 
-    return await normalize_people_in_text_async(
-        note_id=note_id,
-        text=body,
-        people_extraction=people_extraction,
-        metadata=metadata,
-        )
+
+async def normalize_people_in_file_with_warnings_async(
+    path: Path,
+    ) -> Tuple[PersonNormalizationResponse, List[str]]:
+    meta_resp: NoteMetadataResponse = await extract_note_metadata_from_file_async(path)
+    metadata = meta_resp.metadata
+
+    post = await asyncio.to_thread(frontmatter.load, path)
+    body = post.content
+    note_id = path.stem
+
+    return await _normalize_pipeline_async(note_id=note_id, body=body, metadata=metadata)

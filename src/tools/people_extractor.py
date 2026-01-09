@@ -2,6 +2,7 @@ from typing import Any, Dict, List
 from pathlib import Path
 import asyncio
 import json
+import logging
 
 import frontmatter
 
@@ -13,6 +14,10 @@ from ..models import (
     )
 from .note_metadata import extract_note_metadata_from_file, extract_note_metadata_from_file_async
 from ..llm_prompts import add_no_think
+from .validation import validate_and_fix_extraction
+
+
+logger = logging.getLogger(__name__)
 
 
 SYSTEM_PROMPT = """
@@ -35,10 +40,17 @@ SYSTEM_PROMPT = """
    - is_person — true только если ты уверен, что это человек.
    - confidence — насколько уверенно, что это отдельная историческая персона (0–1).
 5. note_year_context:
-   - если рядом с упоминанием есть конкретный год — используй его и поставь note_year_source = "inline";
-   - иначе, если из метаданных заметки дан период или primary_year и СМЫСЛОВО этот человек относится к основному эпизоду — используй основной год заметки (например, середину диапазона) и note_year_source = "note_metadata";
-   - если нельзя уверенно привязать к году — оставь note_year_context = null и note_year_source = "unknown".
-6. snippet_evidence:
+   1) Сначала ищи год прямо рядом с упоминанием (в том же предложении/абзаце) — используй его и поставь note_year_source = "inline".
+   2) Если inline-год не найден, но в метаданных указан основной год/диапазон, и персона явно относится к главному эпизоду — возьми основной год заметки и поставь note_year_source = "note_metadata".
+   3) Если даже метаданные не помогают — оставь note_year_context = null и note_year_source = "unknown".
+   - inline_year — это явное число в тексте: например, "В 1812 году Кутузов..." (inline_year=1812) или "Корин (1892–1967)..." (inline_year=1892).
+   - Если указан диапазон (1812–1814), выбирай наиболее релевантный год (обычно начало или середина эпизода).
+6. Роль персоны (role):
+   - Если в тексте явно указана профессия, должность или роль — запиши её.
+   - Примеры: "художник", "архитектор", "генерал", "купец", "меценат", "император".
+   - Если роль не указана — оставь role = null и role_confidence = 0.
+   - role_confidence — насколько уверенно роль следует из текста.
+7. snippet_evidence:
    - для каждого человека дай несколько (1–3) коротких фрагментов текста, где он упоминается;
    - для каждого фрагмента поясни, почему ты считаешь, что это человек, а не организация/место.
 
@@ -93,7 +105,8 @@ def _build_people_messages(
             },
         {
             "role": "user",
-            "content": add_no_think(user_content),
+            # "content": add_no_think(user_content),
+            "content": user_content,
             },
         ]
 
@@ -102,38 +115,64 @@ async def extract_people_from_text_async(
     note_id: str,
     text: str,
     metadata: NoteMetadata,
+    validate: bool = True,
     ) -> PersonExtractionResponse:
     """
     Вызывает LLM для извлечения людей из текста заметки с учётом NoteMetadata (async-версия).
     """
     messages = _build_people_messages(note_id, text, metadata)
 
-    return await chat_sgr_parse_async(
+    response = await chat_sgr_parse_async(
         messages=messages,
         model_cls=PersonExtractionResponse,
         schema_name="people_extraction",
         temperature=0.0,
         max_tokens=8192,
         )
+
+    if validate:
+        response, stats = validate_and_fix_extraction(response, text)
+        if stats["removed_forms"] > 0:
+            logger.warning(
+                "Note %s: removed %s invalid surface forms, %s persons dropped",
+                note_id,
+                stats["removed_forms"],
+                stats["removed_persons"],
+                )
+
+    return response
 
 
 def extract_people_from_text(
     note_id: str,
     text: str,
     metadata: NoteMetadata,
+    validate: bool = True,
     ) -> PersonExtractionResponse:
     """
     Синхронная версия извлечения людей.
     """
     messages = _build_people_messages(note_id, text, metadata)
 
-    return chat_sgr_parse(
+    response = chat_sgr_parse(
         messages=messages,
         model_cls=PersonExtractionResponse,
         schema_name="people_extraction",
         temperature=0.0,
         max_tokens=8192,
         )
+
+    if validate:
+        response, stats = validate_and_fix_extraction(response, text)
+        if stats["removed_forms"] > 0:
+            logger.warning(
+                "Note %s: removed %s invalid surface forms, %s persons dropped",
+                note_id,
+                stats["removed_forms"],
+                stats["removed_persons"],
+                )
+
+    return response
 
 
 def extract_people_from_file(path: Path) -> PersonExtractionResponse:

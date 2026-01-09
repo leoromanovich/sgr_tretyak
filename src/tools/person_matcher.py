@@ -29,6 +29,8 @@ DECISION_SYSTEM_PROMPT = """
 - Если normalized_full_name отсутствует, но совпадает фамилия, имя и отчество — same_person.
 - Если есть совпадение фамилии и имени, но отчество различается — different_person.
 - Если нет имени, но совпадают фамилия + отчество, а год близкий — возможно same_person.
+- Если роли совпадают и имена близки — это дополнительный сигнал в пользу same_person.
+- Если роли явно разные и нет полного совпадения имён — скорее different_person.
 - Если расходятся более двух ключевых параметров — different_person.
 - Если данных мало или неоднозначно — unknown.
 
@@ -46,6 +48,7 @@ normalized_full_name: {c1.normalized_full_name}
 canonical_name: {c1.canonical_name_in_note}
 name_parts: {c1.name_parts}
 year: {c1.note_year_context}
+role: {c1.role}
 confidence: {c1.person_confidence}
 
 [RIGHT]
@@ -54,6 +57,7 @@ normalized_full_name: {c2.normalized_full_name}
 canonical_name: {c2.canonical_name_in_note}
 name_parts: {c2.name_parts}
 year: {c2.note_year_context}
+role: {c2.role}
 confidence: {c2.person_confidence}
 """
 
@@ -120,7 +124,7 @@ async def match_candidates_async(
         model_cls=PersonMatchDecision,
         schema_name="person_matcher",
         temperature=0.0,
-        max_tokens=None,
+        max_tokens=256,
         )
 
 
@@ -138,5 +142,5 @@ def match_candidates(
         model_cls=PersonMatchDecision,
         schema_name="person_matcher",
         temperature=0.0,
-        max_tokens=None,
+        max_tokens=256,
         )

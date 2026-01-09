@@ -104,6 +104,9 @@ def build_person_profile_text(candidate: PersonCandidate) -> str:
         unique_forms = list(dict.fromkeys(candidate.surface_forms))
         parts.append("Формы: " + ", ".join(unique_forms))
 
+    if candidate.role:
+        parts.append(f"Роль: {candidate.role}")
+
     year_info = _profile_year_info(candidate)
     if year_info:
         parts.append(f"Год: {year_info}")

@@ -1,11 +1,12 @@
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 from pathlib import Path
 import asyncio
+import re
 
 import frontmatter
 
 from ..llm_client import chat_sgr_parse, chat_sgr_parse_async
-from ..models import NoteMetadataResponse
+from ..models import NoteMetadata, NoteMetadataResponse
 
 
 SYSTEM_PROMPT = """
@@ -37,7 +38,6 @@ def _build_metadata_messages(note_id: str, text: str) -> List[Dict[str, Any]]:
                 f"ИД заметки: {note_id}\n\n"
                 "Определи метаданные согласно инструкции.\n\n"
                 f"Текст заметки:\n{text}"
-                "/no_think"
             ),
         },
     ]
@@ -53,7 +53,7 @@ async def extract_note_metadata_from_text_async(note_id: str, text: str) -> Note
         model_cls=NoteMetadataResponse,
         schema_name="note_metadata",
         temperature=0.0,
-        max_tokens=800,
+        max_tokens=8192,
     )
 
 
@@ -63,7 +63,7 @@ def extract_note_metadata_from_text(note_id: str, text: str) -> NoteMetadataResp
         model_cls=NoteMetadataResponse,
         schema_name="note_metadata",
         temperature=0.0,
-        max_tokens=800,
+        max_tokens=8192,
         )
 
 
@@ -83,3 +83,42 @@ def extract_note_metadata_from_file(path: Path) -> NoteMetadataResponse:
     body = post.content
     note_id = path.stem
     return extract_note_metadata_from_text(note_id=note_id, text=body)
+
+
+def validate_metadata(meta: NoteMetadata, text: str) -> Tuple[NoteMetadata, List[str]]:
+    """
+    Проверяет метаданные на правдоподобность и исправляет очевидные ошибки.
+    Возвращает (исправленные метаданные, список предупреждений).
+    """
+    warnings: List[str] = []
+
+    REASONABLE_YEAR_MIN = 1000
+    REASONABLE_YEAR_MAX = 2100
+
+    if meta.primary_year is not None:
+        if not (REASONABLE_YEAR_MIN <= meta.primary_year <= REASONABLE_YEAR_MAX):
+            warnings.append(
+                f"primary_year={meta.primary_year} вне разумного диапазона [{REASONABLE_YEAR_MIN}, {REASONABLE_YEAR_MAX}]"
+            )
+            meta.primary_year = None
+            meta.reliability = min(meta.reliability, 0.3)
+
+    if meta.year_start is not None and meta.year_end is not None:
+        if meta.year_start > meta.year_end:
+            warnings.append(
+                f"year_start={meta.year_start} > year_end={meta.year_end} — меняем местами"
+            )
+            meta.year_start, meta.year_end = meta.year_end, meta.year_start
+
+    years_in_text = {
+        int(match)
+        for match in re.findall(r"\b(1[0-9]{3}|20[0-2][0-9])\b", text or "")
+    }
+
+    if meta.primary_year and years_in_text and meta.primary_year not in years_in_text:
+        warnings.append(
+            f"primary_year={meta.primary_year} не найден в тексте. Найдены годы: {sorted(years_in_text)}"
+        )
+        meta.reliability = min(meta.reliability, 0.5)
+
+    return meta, warnings

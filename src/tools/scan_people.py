@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from pathlib import Path
 from time import perf_counter
 from typing import Iterable, List, Tuple
@@ -8,12 +9,14 @@ from rich import print
 from tqdm.auto import tqdm
 
 from ..config import settings
-from ..models import PersonNormalizationResponse
-from .name_normalizer import normalize_people_in_file_async
+from ..models import PersonNormalizationResponse, confidence_to_bucket
+from .name_normalizer import normalize_people_in_file_with_warnings_async
 
 
 CACHE_DIR = settings.project_root / "cache"
 CACHE_PERSONS_LOCAL = CACHE_DIR / "persons_local_normalized.jsonl"
+MIN_CONFIDENCE_TO_SAVE = 0.2
+logger = logging.getLogger(__name__)
 
 
 def iter_markdown_pages() -> Iterable[Path]:
@@ -27,11 +30,12 @@ def _serialize_people(norm_resp: PersonNormalizationResponse) -> List[bytes]:
     for person in norm_resp.people:
         if not person.is_person:
             continue
-        if person.confidence < 0.6:
+        if person.confidence < MIN_CONFIDENCE_TO_SAVE:
             continue
 
         candidate_id = f"{note_id}:{person.local_person_id}"
         snippet = person.snippet_evidence[0].snippet if person.snippet_evidence else None
+        bucket = confidence_to_bucket(person.confidence)
 
         record = {
             "candidate_id": candidate_id,
@@ -46,6 +50,9 @@ def _serialize_people(norm_resp: PersonNormalizationResponse) -> List[bytes]:
             "name_parts": person.name_parts.model_dump(),
             "note_year_context": person.note_year_context,
             "person_confidence": person.confidence,
+            "confidence_bucket": bucket,
+            "role": person.role,
+            "role_confidence": person.role_confidence,
             "is_person": person.is_person,
             "snippet_preview": snippet,
             }
@@ -53,10 +60,10 @@ def _serialize_people(norm_resp: PersonNormalizationResponse) -> List[bytes]:
     return payloads
 
 
-async def _process_note(path: Path) -> List[bytes]:
-    norm_resp = await normalize_people_in_file_async(path)
+async def _process_note(path: Path) -> Tuple[List[bytes], List[str]]:
+    norm_resp, warnings = await normalize_people_in_file_with_warnings_async(path)
     records = _serialize_people(norm_resp)
-    return records
+    return records, warnings
 
 
 async def scan_people_over_pages_async(
@@ -80,15 +87,15 @@ async def scan_people_over_pages_async(
 
     limiter = asyncio.Semaphore(max(1, workers))
     started_at = perf_counter()
-    queue: asyncio.Queue[Tuple[Path, List[bytes], Exception | None]] = asyncio.Queue()
+    queue: asyncio.Queue[Tuple[Path, List[bytes], List[str], Exception | None]] = asyncio.Queue()
 
     async def run_with_limit(path: Path):
         async with limiter:
             try:
-                records = await _process_note(path)
-                await queue.put((path, records, None))
+                records, warnings = await _process_note(path)
+                await queue.put((path, records, warnings, None))
             except Exception as exc:
-                await queue.put((path, [], exc))
+                await queue.put((path, [], [], exc))
 
     tasks = [asyncio.create_task(run_with_limit(path)) for path in pages]
 
@@ -104,10 +111,13 @@ async def scan_people_over_pages_async(
                 if item is None:
                     queue.task_done()
                     break
-                path, records, error = item
+                path, records, warnings, error = item
                 if error:
                     print(f"[red]Ошибка при обработке {path.name}:[/red] {error}")
                 else:
+                    if warnings:
+                        for warning in warnings:
+                            logger.warning("Note %s: %s", path.stem, warning)
                     for payload in records:
                         f_out.write(payload)
                         f_out.write(b"\n")

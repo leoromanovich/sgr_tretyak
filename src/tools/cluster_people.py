@@ -175,7 +175,6 @@ def _meaningful_form_overlap(
 
 @dataclass
 class PairFilterConfig:
-    min_person_confidence: float = 0.35
     max_year_diff: int = 25
     min_pair_score: float = 1.5
 
@@ -202,10 +201,6 @@ def load_pair_filter_config(config_path: Optional[Path] = None) -> PairFilterCon
     matching = data.get("matching", {}) if isinstance(data, dict) else {}
     if not isinstance(matching, dict):
         return config
-
-    min_conf = matching.get("min_person_confidence")
-    if isinstance(min_conf, (int, float)):
-        config.min_person_confidence = max(0.0, min(1.0, float(min_conf)))
 
     max_year = matching.get("max_year_diff")
     if isinstance(max_year, int) and max_year >= 0:
@@ -342,13 +337,10 @@ def should_consider_for_llm(
     config: PairFilterConfig,
     stats: PairFilterStats,
     ) -> bool:
-    if config.min_person_confidence > 0:
-        if (
-            c1.person_confidence < config.min_person_confidence
-            or c2.person_confidence < config.min_person_confidence
-        ):
-            stats.low_confidence += 1
-            return False
+    low_buckets = {"low", "very_low"}
+    if c1.confidence_bucket in low_buckets and c2.confidence_bucket in low_buckets:
+        stats.low_confidence += 1
+        return False
 
     if config.max_year_diff and c1.note_year_context and c2.note_year_context:
         if abs(c1.note_year_context - c2.note_year_context) > config.max_year_diff:
@@ -366,6 +358,35 @@ def should_consider_for_llm(
 def cheap_decision(c1: PersonCandidate, c2: PersonCandidate) -> Optional[str]:
     np1 = c1.name_parts
     np2 = c2.name_parts
+
+    def normalized_full_match() -> bool:
+        return bool(
+            c1.normalized_full_name
+            and c2.normalized_full_name
+            and c1.normalized_full_name == c2.normalized_full_name
+        )
+
+    def first_last_match() -> bool:
+        return bool(
+            np1.last_name
+            and np2.last_name
+            and np1.last_name == np2.last_name
+            and np1.first_name
+            and np2.first_name
+            and np1.first_name == np2.first_name
+        )
+
+    full_name_match = normalized_full_match()
+    strong_name_match = full_name_match or first_last_match()
+
+    if c1.role and c2.role:
+        role1 = c1.role.strip().lower()
+        role2 = c2.role.strip().lower()
+        if role1 and role2:
+            if role1 == role2 and strong_name_match:
+                return "same_person"
+            if role1 != role2 and not full_name_match:
+                return "different_person"
 
     year1 = c1.note_year_context
     year2 = c2.note_year_context
@@ -414,7 +435,7 @@ def cheap_decision(c1: PersonCandidate, c2: PersonCandidate) -> Optional[str]:
         if np1.patronymic and np2.patronymic and np1.patronymic != np2.patronymic:
             return "different_person"
 
-    if c1.normalized_full_name and c1.normalized_full_name == c2.normalized_full_name:
+    if full_name_match:
         return "same_person"
 
     forms1 = normalize_forms(c1.surface_forms)

@@ -54,6 +54,7 @@ async def chat_raw_async(
         "model": settings.model_name,
         "messages": messages,
         "temperature": temperature,
+        "extra_body": {"reasoning_effort": "low"}
         }
 
     if response_format is not None:
@@ -142,7 +143,7 @@ async def chat_sgr_parse_async(
         "json_schema": {
             "name": schema_name,
             "schema": schema,
-            "strict": True,  # включи, если твой vLLM это поддерживает
+            # "strict": True,  # включи, если твой vLLM это поддерживает
             },
         }
 

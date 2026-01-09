@@ -1,5 +1,8 @@
 from typing import Optional, List, Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
+
+
+ConfidenceBucket = Literal["high", "medium", "low", "very_low"]
 
 
 class NoteMetadata(BaseModel):
@@ -90,6 +93,17 @@ class PersonLocal(BaseModel):
     snippet_evidence: List[PersonSnippetEvidence] = Field(
         default_factory=list,
         description="Набор фрагментов текста с объяснением, почему это человек",
+    )
+    role: Optional[str] = Field(
+        None,
+        max_length=100,
+        description="Роль/профессия персоны из контекста (художник, архитектор, генерал и т.д.)",
+    )
+    role_confidence: float = Field(
+        0.0,
+        ge=0.0,
+        le=1.0,
+        description="Уверенность модели в том, что роль указана корректно",
     )
 
 
@@ -195,6 +209,23 @@ class PersonCandidate(BaseModel):
         le=1.0,
         description="Уверенность из PersonLocal/PersonLocalNormalized",
         )
+    confidence_bucket: ConfidenceBucket = Field(
+        "medium",
+        description=(
+            "Категория уверенности: high (≥0.8), medium (0.6–0.8), "
+            "low (0.4–0.6), very_low (<0.4)"
+        ),
+        )
+    role: Optional[str] = Field(
+        None,
+        description="Роль/профессия персоны из контекста заметки (если есть)",
+        )
+    role_confidence: float = Field(
+        0.0,
+        ge=0.0,
+        le=1.0,
+        description="Уверенность в корректности роли",
+        )
     is_person: bool = Field(
         ...,
         description="Копия is_person для фильтрации",
@@ -236,8 +267,25 @@ class GlobalPerson(BaseModel):
         )
 
 class PersonMatchDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     left_candidate_id: str
     right_candidate_id: str
     relation: Literal["same_person", "different_person", "unknown"]
     confidence: float = Field(..., ge=0.0, le=1.0)
 
+
+class PersonMatchBinaryChoice(BaseModel):
+    choice: Literal["yes", "no"] = Field(
+        ...,
+        description="yes — один и тот же человек; no — разные или недостаточно данных",
+    )
+
+
+def confidence_to_bucket(confidence: float) -> ConfidenceBucket:
+    if confidence >= 0.8:
+        return "high"
+    if confidence >= 0.6:
+        return "medium"
+    if confidence >= 0.4:
+        return "low"
+    return "very_low"
