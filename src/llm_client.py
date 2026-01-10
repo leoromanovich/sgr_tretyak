@@ -10,6 +10,9 @@ from pydantic import BaseModel, ValidationError
 from rich import print as rich_print
 
 from src.config import settings
+import logging
+
+logger = logging.getLogger(__name__)
 
 LLM_CONCURRENCY_LIMIT = 32 
 LLM_TIMEOUT_RETRY_DELAY_SECONDS = 2.0
@@ -41,6 +44,84 @@ def _run_sync(coro):
         "используй chat_raw_async/chat_sgr_parse_async"
         )
 
+
+def detect_truncation(content: str) -> bool:
+    """Определяет, был ли JSON обрезан."""
+    if not content:
+        return True
+    content = content.strip()
+    if not content.endswith('}') and not content.endswith(']'):
+        return True
+    if content.count('{') != content.count('}'):
+        return True
+    if content.count('[') != content.count(']'):
+        return True
+    return False
+
+
+def _deduplicate_mentions_payload(data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Удаляет дублирующиеся mentions, у которых совпадают text_span и context_snippet.
+    """
+    mentions = data.get("mentions")
+    if not isinstance(mentions, list):
+        return data
+
+    seen_keys = set()
+    deduped: List[Dict[str, Any]] = []
+    removed = 0
+
+    for item in mentions:
+        if not isinstance(item, dict):
+            deduped.append(item)
+            continue
+        key = (item.get("text_span"), item.get("context_snippet"))
+        if key in seen_keys:
+            removed += 1
+            continue
+        seen_keys.add(key)
+        deduped.append(item)
+
+    if removed:
+        logger.debug("Deduplicated %s repeated mentions", removed)
+        data["mentions"] = deduped
+
+    return data
+
+
+def _postprocess_response_data(schema_name: str, data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Дополнительная нормализация json-ответа от LLM перед валидацией.
+    """
+    if schema_name == "mention_extraction":
+        return _deduplicate_mentions_payload(data)
+    return data
+
+
+def try_repair_truncated_json(content: str) -> Optional[Dict[str, Any]]:
+    """Пытается восстановить обрезанный JSON."""
+    if not content:
+        return None
+    
+    # Находим последний полный объект
+    last_complete_obj = content.rfind('},')
+    if last_complete_obj == -1:
+        last_complete_obj = content.rfind('}')
+    if last_complete_obj == -1:
+        return None
+    
+    truncated = content[:last_complete_obj + 1]
+    
+    # Закрываем незакрытые скобки
+    open_brackets = truncated.count('[') - truncated.count(']')
+    open_braces = truncated.count('{') - truncated.count('}')
+    
+    repaired = truncated + ']' * open_brackets + '}' * open_braces
+    
+    try:
+        return json.loads(repaired)
+    except json.JSONDecodeError:
+        return None
 
 async def chat_raw_async(
     messages: List[Dict[str, Any]],
@@ -147,44 +228,90 @@ async def chat_sgr_parse_async(
             },
         }
 
-    resp = await chat_raw_async(
-        messages=messages,
-        response_format=response_format,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        )
+    parse_attempts = 2
+    last_error: Optional[str] = None
 
-    content = resp["message"].content
-    if not content:
-        raise RuntimeError("LLM вернул пустой content при SGR-вызове")
-
-    try:
-        data = json.loads(content)
-    except json.JSONDecodeError as e:
-        raise RuntimeError(f"Невалидный JSON от LLM: {e}\nRaw: {content}")
-
-    if _should_trace():
-        trace_dir = settings.project_root / "log_tracing"
-        trace_dir.mkdir(parents=True, exist_ok=True)
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-        trace_path = trace_dir / f"{schema_name}_{timestamp}.json"
-        with open(trace_path, "w", encoding="utf-8") as f:
-            json.dump(
-                {
-                    "schema_name": schema_name,
-                    "messages": messages,
-                    "response": resp["raw"].model_dump(),
-                    "parsed_json": data,
-                },
-                f,
-                ensure_ascii=False,
-                indent=2,
+    for attempt in range(parse_attempts):
+        resp = await chat_raw_async(
+            messages=messages,
+            response_format=response_format,
+            temperature=temperature,
+            max_tokens=max_tokens,
             )
 
-    try:
-        return model_cls.model_validate(data)
-    except ValidationError as e:
-        raise RuntimeError(f"JSON не прошёл валидацию Pydantic: {e}\nData: {data}")
+        content = resp["message"].content
+        if not content:
+            raise RuntimeError("LLM вернул пустой content при SGR-вызове")
+
+        try:
+            data = json.loads(content)
+        except json.JSONDecodeError as e:
+            if detect_truncation(content):
+                logger.warning(
+                    "JSON обрезан (превышен max_tokens?), пытаемся восстановить..."
+                )
+                data = try_repair_truncated_json(content)
+                if data is None:
+                    last_error = (
+                        f"Невалидный JSON от LLM (обрезан, восстановить не удалось): {e}\n"
+                        f"Raw (последние 500 символов): ...{content[-500:]}"
+                    )
+                    if attempt + 1 < parse_attempts:
+                        logger.warning(
+                            "Повторный запрос после обрезанного JSON (attempt %s/%s)",
+                            attempt + 1,
+                            parse_attempts,
+                        )
+                        continue
+                    raise RuntimeError(last_error)
+                logger.warning(
+                    "JSON успешно восстановлен, но данные могут быть неполными"
+                )
+            else:
+                last_error = f"Невалидный JSON от LLM: {e}\nRaw: {content}"
+                if attempt + 1 < parse_attempts:
+                    logger.warning(
+                        "LLM вернул невалидный JSON (attempt %s/%s), повторяем запрос",
+                        attempt + 1,
+                        parse_attempts,
+                    )
+                    continue
+                raise RuntimeError(last_error)
+
+        if _should_trace():
+            trace_dir = settings.project_root / "log_tracing"
+            trace_dir.mkdir(parents=True, exist_ok=True)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+            trace_path = trace_dir / f"{schema_name}_{timestamp}.json"
+            with open(trace_path, "w", encoding="utf-8") as f:
+                json.dump(
+                    {
+                        "schema_name": schema_name,
+                        "messages": messages,
+                        "response": resp["raw"].model_dump(),
+                        "parsed_json": data,
+                    },
+                    f,
+                    ensure_ascii=False,
+                    indent=2,
+                )
+
+        try:
+            data = _postprocess_response_data(schema_name, data)
+            return model_cls.model_validate(data)
+        except ValidationError as e:
+            last_error = f"JSON не прошёл валидацию Pydantic: {e}\nData: {data}"
+            if attempt + 1 < parse_attempts:
+                logger.warning(
+                    "LLM ответ не прошёл валидацию (attempt %s/%s), повторяем запрос",
+                    attempt + 1,
+                    parse_attempts,
+                )
+                continue
+            raise RuntimeError(last_error)
+
+    # по идее не должно сюда доходить
+    raise RuntimeError(last_error or "Не удалось распарсить ответ LLM")
 
 
 def chat_sgr_parse(

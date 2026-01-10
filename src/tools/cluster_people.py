@@ -20,7 +20,7 @@ from ..models import (
     NameParts,
     )
 
-CACHE_DIR = settings.project_root / "cache"
+CACHE_DIR = settings.cache_dir
 CLUSTERS_CACHE_PATH = CACHE_DIR / "persons_clusters.json"
 
 

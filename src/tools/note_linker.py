@@ -1,5 +1,6 @@
 import re
 from pathlib import Path
+from itertools import permutations
 from typing import Dict, List, Tuple
 
 from rich import print
@@ -33,6 +34,23 @@ def group_candidates_by_note(candidates: List[PersonCandidate]) -> Dict[str, Lis
     return by_note
 
 
+def _generate_surface_form_variants(form: str) -> List[str]:
+    """Возвращает исходную форму и варианты с перестановкой частей имени."""
+
+    variants = {form}
+    tokens = re.findall(r"[A-Za-zА-Яа-яЁё]+", form)
+
+    if 2 <= len(tokens) <= 3:
+        # Требуем хотя бы две "осмысленные" части длиннее одной буквы,
+        # чтобы не перебирать варианты вроде "Корин П Д".
+        if sum(1 for t in tokens if len(t) > 1) >= 2:
+            for perm in set(permutations(tokens)):
+                perm_form = " ".join(perm)
+                variants.add(perm_form)
+
+    return list(variants)
+
+
 def build_unique_surface_forms_for_note(
     persons: List[PersonCandidate],
     cid_to_file: Dict[str, str],
@@ -47,7 +65,8 @@ def build_unique_surface_forms_for_note(
         if p.candidate_id not in cid_to_file:
             continue
         for form in p.surface_forms:
-            form_to_candidates.setdefault(form, []).append(p)
+            for variant in _generate_surface_form_variants(form):
+                form_to_candidates.setdefault(variant, []).append(p)
 
     form_filename_pairs: List[Tuple[str, str]] = []
 

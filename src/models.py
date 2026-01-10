@@ -54,6 +54,75 @@ class PersonSnippetEvidence(BaseModel):
     )
 
 
+class PersonMention(BaseModel):
+    """Одно упоминание потенциального человека в тексте."""
+
+    mention_id: str = Field(..., description="Уникальный ID упоминания (m1, m2, ...)")
+    text_span: str = Field(
+        ...,
+        max_length=200,
+        description="Точное упоминание как оно встречается в тексте",
+    )
+    start_char: Optional[int] = Field(
+        None,
+        description="Позиция начала упоминания в тексте, если известна",
+    )
+    context_snippet: str = Field(
+        ...,
+        max_length=300,
+        description="Короткий контекст вокруг упоминания",
+    )
+    likely_person: bool = Field(
+        True,
+        description="true, если упоминание похоже на человека (а не организацию/место)",
+    )
+    inline_year: Optional[int] = Field(
+        None,
+        description="Год рядом с упоминанием, если можно определить",
+    )
+
+
+class MentionExtractionResponse(BaseModel):
+    note_id: str
+    mentions: List[PersonMention] = Field(
+        default_factory=list, 
+        max_length=50,  # Было 100
+        description=(
+            "Список упоминаний людей. МАКСИМУМ 50 упоминаний! "
+            "Каждое упоминание должно иметь уникальный context_snippet."
+        )
+    )
+
+class MentionGroup(BaseModel):
+    """Группа упоминаний, относящихся к одному человеку."""
+
+    group_id: str = Field(..., description="ID группы (g1, g2, ...)")
+    mention_ids: List[str] = Field(
+        ...,
+        min_length=1,
+        description="Список mention_id, входящих в группу",
+    )
+    canonical_name: str = Field(
+        ...,
+        description="Наиболее полная форма имени внутри группы",
+    )
+    is_person: bool = Field(
+        True,
+        description="true, если группа соответствует реальному человеку",
+    )
+    confidence: float = Field(
+        ...,
+        ge=0.0,
+        le=1.0,
+        description="Уверенность, что группа = один человек",
+    )
+
+
+class MentionGroupingResponse(BaseModel):
+    note_id: str
+    groups: List[MentionGroup] = Field(default_factory=list)
+
+
 class PersonLocal(BaseModel):
     note_id: str = Field(..., description="ID заметки, где встречается персона")
     local_person_id: str = Field(

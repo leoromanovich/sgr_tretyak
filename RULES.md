@@ -79,7 +79,7 @@ embedding:
   top_k: 12
   index_type: "hnswlib"                 # hnswlib | annoy | faiss (если подключён)
   use_mps: false                        # MPS для Mac
-  cache_path: "cache/embeddings"
+  cache_path: "embeddings"
 ```
 
 Этап эмбеддингов используется перед LLM-матчингом персон: строим компактные

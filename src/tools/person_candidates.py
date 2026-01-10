@@ -8,7 +8,7 @@ from ..config import settings
 from ..models import PersonCandidate
 
 
-CACHE_DIR = settings.project_root / "cache"
+CACHE_DIR = settings.cache_dir
 CACHE_PERSONS_LOCAL = CACHE_DIR / "persons_local_normalized.jsonl"
 
 

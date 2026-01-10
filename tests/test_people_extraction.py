@@ -173,7 +173,22 @@ class TestPeopleExtraction:
         for note_id, (result, expected) in extraction_results.items():
             errors = validate_extraction(result, expected)
             if errors:
-                all_errors.append(f"\n[{note_id}]:\n  " + "\n  ".join(errors))
+                extracted_people = [
+                    f"{person.canonical_name_in_note} "
+                    f"(forms: {', '.join(person.surface_forms)})"
+                    for person in result.people
+                ] or ["<no people extracted>"]
+
+                expected_patterns = [ep.name_pattern for ep in expected.expected_people]
+
+                all_errors.append(
+                    f"\n[{note_id}]:\n"
+                    f"  " + "\n  ".join(errors) + "\n"
+                    f"  Extracted people:\n"
+                    f"    " + "\n    ".join(extracted_people) + "\n"
+                    f"  Expected patterns:\n"
+                    f"    " + "\n    ".join(expected_patterns)
+                )
 
         assert not all_errors, "Extraction validation failed:" + "".join(all_errors)
 

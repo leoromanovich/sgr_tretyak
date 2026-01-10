@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     pages_linked_dir: Path = project_root / "data" / "pages_linked"
     obsidian_persons_dir: Path = project_root / "data" / "obsidian" / "persons"
     obsidian_items_dir: Path = project_root / "data" / "obsidian" / "items"
+    cache_dir: Path = project_root / "cache"
 
     model_config = SettingsConfigDict(
             env_file=".env",

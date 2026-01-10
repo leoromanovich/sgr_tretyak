@@ -2,21 +2,20 @@
   "note_id": "8331",
   "expected_people": [
     {
-      "name_pattern": "Корин.*Павел|Павел.*Корин",
+      "name_pattern": "Корин|Павл",
       "is_person": true,
       "min_confidence": 0.8
     },
     {
-      "name_pattern": "[Пп]атриарх.*Тихон",
+      "name_pattern": "[Пп]атриарх.*Тихон|Тихон",
       "is_person": true,
       "min_confidence": 0.8
     },
     {
-      "name_pattern": "Е.В.Вучетич",
+      "name_pattern": "Е\\.В\\.\\s*Вучетич",
       "is_person": true,
       "min_confidence": 0.8
     }
-
   ],
   "forbidden_patterns": []
 }

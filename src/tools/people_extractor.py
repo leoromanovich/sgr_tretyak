@@ -8,13 +8,20 @@ import frontmatter
 
 from ..llm_client import chat_sgr_parse, chat_sgr_parse_async
 from ..models import (
+    MentionExtractionResponse,
+    MentionGroupingResponse,
     NoteMetadata,
     NoteMetadataResponse,
     PersonExtractionResponse,
-    )
+    PersonLocal,
+    PersonSnippetEvidence,
+)
 from .note_metadata import extract_note_metadata_from_file, extract_note_metadata_from_file_async
 from ..llm_prompts import add_no_think
 from .validation import validate_and_fix_extraction
+from .mention_extractor import extract_mentions_async, extract_mentions
+from .mention_grouper import group_mentions_async, group_mentions
+from .pipeline_trace import log_pipeline_stage
 
 
 logger = logging.getLogger(__name__)
@@ -116,10 +123,19 @@ async def extract_people_from_text_async(
     text: str,
     metadata: NoteMetadata,
     validate: bool = True,
-    ) -> PersonExtractionResponse:
+    two_pass: bool = True,
+) -> PersonExtractionResponse:
     """
-    Вызывает LLM для извлечения людей из текста заметки с учётом NoteMetadata (async-версия).
+    Async-вызов people extractor. По умолчанию использует двухпроходную схему.
     """
+    if two_pass:
+        return await extract_people_two_pass_async(
+            note_id=note_id,
+            text=text,
+            metadata=metadata,
+            validate=validate,
+        )
+
     messages = _build_people_messages(note_id, text, metadata)
 
     response = await chat_sgr_parse_async(
@@ -128,7 +144,7 @@ async def extract_people_from_text_async(
         schema_name="people_extraction",
         temperature=0.0,
         max_tokens=8192,
-        )
+    )
 
     if validate:
         response, stats = validate_and_fix_extraction(response, text)
@@ -138,7 +154,7 @@ async def extract_people_from_text_async(
                 note_id,
                 stats["removed_forms"],
                 stats["removed_persons"],
-                )
+            )
 
     return response
 
@@ -148,10 +164,19 @@ def extract_people_from_text(
     text: str,
     metadata: NoteMetadata,
     validate: bool = True,
-    ) -> PersonExtractionResponse:
+    two_pass: bool = True,
+) -> PersonExtractionResponse:
     """
-    Синхронная версия извлечения людей.
+    Синхронная версия people extractor с двухпроходной схемой по умолчанию.
     """
+    if two_pass:
+        return extract_people_two_pass(
+            note_id=note_id,
+            text=text,
+            metadata=metadata,
+            validate=validate,
+        )
+
     messages = _build_people_messages(note_id, text, metadata)
 
     response = chat_sgr_parse(
@@ -160,7 +185,7 @@ def extract_people_from_text(
         schema_name="people_extraction",
         temperature=0.0,
         max_tokens=8192,
-        )
+    )
 
     if validate:
         response, stats = validate_and_fix_extraction(response, text)
@@ -170,12 +195,12 @@ def extract_people_from_text(
                 note_id,
                 stats["removed_forms"],
                 stats["removed_persons"],
-                )
+            )
 
     return response
 
 
-def extract_people_from_file(path: Path) -> PersonExtractionResponse:
+def extract_people_from_file(path: Path, two_pass: bool = True) -> PersonExtractionResponse:
     """
     Удобный вход: по пути к файлу:
     1) извлекает метаданные заметки,
@@ -192,10 +217,18 @@ def extract_people_from_file(path: Path) -> PersonExtractionResponse:
     note_id = path.stem
 
     # 3. people extractor
-    return extract_people_from_text(note_id=note_id, text=body, metadata=metadata)
+    return extract_people_from_text(
+        note_id=note_id,
+        text=body,
+        metadata=metadata,
+        two_pass=two_pass,
+    )
 
 
-async def extract_people_from_file_async(path: Path) -> PersonExtractionResponse:
+async def extract_people_from_file_async(
+    path: Path,
+    two_pass: bool = True,
+) -> PersonExtractionResponse:
     """
     Async-вариант пайплайна для одной заметки.
     """
@@ -206,4 +239,134 @@ async def extract_people_from_file_async(path: Path) -> PersonExtractionResponse
     body = post.content
     note_id = path.stem
 
-    return await extract_people_from_text_async(note_id=note_id, text=body, metadata=metadata)
+    return await extract_people_from_text_async(
+        note_id=note_id,
+        text=body,
+        metadata=metadata,
+        two_pass=two_pass,
+    )
+
+
+def _build_people_from_group(
+    note_id: str,
+    group,
+    mention_objs,
+    local_person_id: str,
+) -> PersonLocal:
+    surface_forms: List[str] = []
+    for mention in mention_objs:
+        if mention.text_span not in surface_forms:
+            surface_forms.append(mention.text_span)
+        if len(surface_forms) >= 10:
+            break
+
+    inline_year = next((m.inline_year for m in mention_objs if m.inline_year is not None), None)
+    note_year_source = "inline" if inline_year is not None else "unknown"
+
+    snippet_evidence: List[PersonSnippetEvidence] = []
+    for mention in mention_objs[:3]:
+        snippet_evidence.append(
+            PersonSnippetEvidence(
+                snippet=mention.context_snippet,
+                reasoning=f"Упоминание {mention.mention_id} выявлено на этапе mention extraction",
+            )
+        )
+
+    if not surface_forms:
+        surface_forms = [group.canonical_name]
+
+    return PersonLocal(
+        note_id=note_id,
+        local_person_id=local_person_id,
+        surface_forms=surface_forms,
+        canonical_name_in_note=group.canonical_name,
+        is_person=group.is_person,
+        confidence=group.confidence,
+        note_year_context=inline_year,
+        note_year_source=note_year_source,
+        snippet_evidence=snippet_evidence,
+        role=None,
+        role_confidence=0.0,
+    )
+
+
+def _convert_groups_to_extraction_response(
+    note_id: str,
+    groups_resp: MentionGroupingResponse,
+    mentions_resp: MentionExtractionResponse,
+) -> PersonExtractionResponse:
+    """
+    Конвертирует результат группировки в старый формат PersonExtractionResponse.
+    """
+    mentions_map = {m.mention_id: m for m in mentions_resp.mentions}
+    people: List[PersonLocal] = []
+
+    for group in groups_resp.groups:
+        mention_objs = [mentions_map[mid] for mid in group.mention_ids if mid in mentions_map]
+        if not mention_objs:
+            continue
+        local_person_id = f"p{len(people) + 1}"
+        person = _build_people_from_group(note_id, group, mention_objs, local_person_id)
+        people.append(person)
+
+    return PersonExtractionResponse(note_id=note_id, people=people)
+
+
+def extract_people_two_pass(
+    note_id: str,
+    text: str,
+    metadata: NoteMetadata,
+    validate: bool = True,
+) -> PersonExtractionResponse:
+    """
+    Синхронный двухпроходный people extractor.
+    """
+    mentions_resp = extract_mentions(note_id=note_id, text=text, metadata=metadata)
+    groups_resp = group_mentions(note_id, mentions_resp.mentions, text)
+    response = _convert_groups_to_extraction_response(note_id, groups_resp, mentions_resp)
+    log_pipeline_stage(note_id, "people_raw", response.model_dump())
+
+    if validate:
+        response, stats = validate_and_fix_extraction(response, text)
+        if stats["removed_forms"] > 0:
+            logger.warning(
+                "Note %s (two-pass sync): removed %s invalid surface forms, %s persons dropped",
+                note_id,
+                stats["removed_forms"],
+                stats["removed_persons"],
+            )
+        log_pipeline_stage(note_id, "people_final", response.model_dump())
+    else:
+        log_pipeline_stage(note_id, "people_final", response.model_dump())
+
+    return response
+
+
+async def extract_people_two_pass_async(
+    note_id: str,
+    text: str,
+    metadata: NoteMetadata,
+    validate: bool = True,
+) -> PersonExtractionResponse:
+    """
+    Двухпроходное извлечение: mentions -> grouping -> PersonExtractionResponse.
+    """
+    mentions_resp = await extract_mentions_async(note_id=note_id, text=text, metadata=metadata)
+    groups_resp = await group_mentions_async(note_id, mentions_resp.mentions, text)
+    response = _convert_groups_to_extraction_response(note_id, groups_resp, mentions_resp)
+    log_pipeline_stage(note_id, "people_raw", response.model_dump())
+
+    if validate:
+        response, stats = validate_and_fix_extraction(response, text)
+        if stats["removed_forms"] > 0:
+            logger.warning(
+                "Note %s (two-pass): removed %s invalid surface forms, %s persons dropped",
+                note_id,
+                stats["removed_forms"],
+                stats["removed_persons"],
+            )
+        log_pipeline_stage(note_id, "people_final", response.model_dump())
+    else:
+        log_pipeline_stage(note_id, "people_final", response.model_dump())
+
+    return response

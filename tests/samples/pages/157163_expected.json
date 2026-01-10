@@ -4,57 +4,57 @@
     {
       "name_pattern": "Дягилев",
       "is_person": true,
-      "min_confidence": 0.8
+      "min_confidence": 0.7
     },
     {
-      "name_pattern": "Вацлав.*Нижинский|Нижинский.*Вацлав",
+      "name_pattern": "Нижинск",
       "is_person": true,
       "min_confidence": 0.9
     },
     {
-      "name_pattern": "Альфонсо\\s+XIII",
-      "is_person": true,
-      "min_confidence": 0.8
-    },
-    {
-      "name_pattern": "Григорьев",
+      "name_pattern": "Альфонсо|Alfonso",
       "is_person": true,
       "min_confidence": 0.6
     },
     {
-      "name_pattern": "Чарли.*Чаплин|Чаплин.*Чарли",
+      "name_pattern": "Григорьев",
       "is_person": true,
-      "min_confidence": 0.9
+      "min_confidence": 0.5
     },
     {
-      "name_pattern": "М\\.Ф\\.\\s*Ларионов",
+      "name_pattern": "Чаплин|Chaplin",
       "is_person": true,
       "min_confidence": 0.8
     },
     {
-      "name_pattern": "А\\.К\\.\\s*Томилина",
-      "is_person": true,
-      "min_confidence": 0.8
-    },
-    {
-      "name_pattern": "Э\\.\\s*Пёрвиенс",
+      "name_pattern": "Ларионов",
       "is_person": true,
       "min_confidence": 0.7
     },
     {
-      "name_pattern": "Э\\.\\s*Кэмпбелл",
+      "name_pattern": "Томилин",
       "is_person": true,
-      "min_confidence": 0.7
+      "min_confidence": 0.6
     },
     {
-      "name_pattern": "Ш\\.\\s*Мино",
+      "name_pattern": "Пёрвиенс|Пурвианс|Purviance",
       "is_person": true,
-      "min_confidence": 0.7
+      "min_confidence": 0.5
     },
     {
-      "name_pattern": "Л\\.\\s*Лопухова",
+      "name_pattern": "Кэмпбелл|Campbell",
       "is_person": true,
-      "min_confidence": 0.7
+      "min_confidence": 0.5
+    },
+    {
+      "name_pattern": "Мино",
+      "is_person": true,
+      "min_confidence": 0.5
+    },
+    {
+      "name_pattern": "Лопухов",
+      "is_person": true,
+      "min_confidence": 0.5
     }
   ],
   "forbidden_patterns": []

@@ -24,7 +24,7 @@ embedding:
   top_k: 12
   index_type: "hnswlib"
   use_mps: false
-  cache_path: "cache/embeddings"
+  cache_path: "embeddings"
 
 matching:
   max_year_diff: 25

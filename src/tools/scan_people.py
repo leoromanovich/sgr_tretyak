@@ -13,7 +13,7 @@ from ..models import PersonNormalizationResponse, confidence_to_bucket
 from .name_normalizer import normalize_people_in_file_with_warnings_async
 
 
-CACHE_DIR = settings.project_root / "cache"
+CACHE_DIR = settings.cache_dir
 CACHE_PERSONS_LOCAL = CACHE_DIR / "persons_local_normalized.jsonl"
 MIN_CONFIDENCE_TO_SAVE = 0.2
 logger = logging.getLogger(__name__)

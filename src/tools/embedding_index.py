@@ -27,7 +27,7 @@ class EmbeddingConfig:
     top_k: int = 12
     index_type: str = "hnswlib"
     use_mps: bool = False
-    cache_path: Path = settings.project_root / "cache" / "embeddings"
+    cache_path: Path = settings.cache_dir / "embeddings"
 
 
 def _resolve_cache_path(value: str | Path) -> Path:
@@ -35,9 +35,9 @@ def _resolve_cache_path(value: str | Path) -> Path:
         path = value
     else:
         path = Path(value)
-    if not path.is_absolute():
-        return settings.project_root / path
-    return path
+    if path.is_absolute():
+        return path
+    return settings.cache_dir / path
 
 
 def load_embedding_config(config_path: Optional[Path] = None) -> EmbeddingConfig:
