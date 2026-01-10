@@ -1,0 +1,23 @@
+{
+  "candidates": [
+    { "index": 0, "name": "Корин Павел", "is_person": true },
+    { "index": 1, "name": "А.В. Щусевым", "is_person": true },
+    { "index": 2, "name": "В.Д. Кокориным", "is_person": true },
+    { "index": 3, "name": "А.Ю. Заболотной", "is_person": true },
+    { "index": 4, "name": "В.С. Варваниным", "is_person": true },
+    { "index": 5, "name": "П.Д. Корина", "is_person": true },
+    { "index": 6, "name": "П.Д. Корин", "is_person": true },
+    { "index": 7, "name": "И.В. Сталина", "is_person": true },
+    { "index": 8, "name": "Александра Невского", "is_person": true },
+    { "index": 9, "name": "Димитрия Донского", "is_person": true },
+    { "index": 10, "name": "Кузьмы Минина", "is_person": true },
+    { "index": 11, "name": "Димитрия Пожарского", "is_person": true },
+    { "index": 12, "name": "Александра Суворова", "is_person": true },
+    { "index": 13, "name": "Михаила Кутузова", "is_person": true },
+    { "index": 14, "name": "Ленина", "is_person": true },
+    { "index": 15, "name": "И.В. Сталина", "is_person": true },
+    { "index": 16, "name": "В.И. Ленина", "is_person": true },
+    { "index": 17, "name": "И.В. Сталина", "is_person": true },
+    { "index": 18, "name": "В.И. Ленина", "is_person": true }
+  ]
+}

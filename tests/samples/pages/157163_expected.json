@@ -12,7 +12,7 @@
       "min_confidence": 0.9
     },
     {
-      "name_pattern": "Альфонсо|Alfonso",
+      "name_pattern": "Альфонсо",
       "is_person": true,
       "min_confidence": 0.6
     },
@@ -22,7 +22,7 @@
       "min_confidence": 0.5
     },
     {
-      "name_pattern": "Чаплин|Chaplin",
+      "name_pattern": "Чаплин",
       "is_person": true,
       "min_confidence": 0.8
     },
@@ -37,12 +37,12 @@
       "min_confidence": 0.6
     },
     {
-      "name_pattern": "Пёрвиенс|Пурвианс|Purviance",
+      "name_pattern": "Пёрвиенс|Первиенс",
       "is_person": true,
       "min_confidence": 0.5
     },
     {
-      "name_pattern": "Кэмпбелл|Campbell",
+      "name_pattern": "Кэмпбелл",
       "is_person": true,
       "min_confidence": 0.5
     },
