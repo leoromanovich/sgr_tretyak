@@ -7,6 +7,7 @@ from .tools.note_metadata import extract_note_metadata_from_file
 from .tools.people_extractor import extract_people_from_file
 from .tools.name_normalizer import normalize_people_in_file
 from .tools.scan_people import scan_people_over_pages
+from .tools.ner_provider import run_ner_for_pages
 from .tools.person_candidates import debug_print_candidates
 from .tools.cluster_people import cluster_people, load_or_cluster_global_persons
 from .tools.person_note_generator import write_person_notes
@@ -18,6 +19,33 @@ setup_file_logging("cli")
 
 
 app = typer.Typer(help="Исторический SGR-пайплайн")
+
+
+@app.command()
+def ner_extract(
+    overwrite: bool = typer.Option(
+        False,
+        "--overwrite",
+        help="Перезаписать существующий кэш NER",
+    ),
+):
+    """
+    Прогнать NER модель по всем заметкам и сохранить в кэш.
+    Запускается ПЕРЕД scan-people.
+    """
+    pages_dir = settings.pages_dir
+    cache_dir = settings.ner_cache_dir
+
+    print(f"[bold]NER extraction[/bold]")
+    print(f"  Pages dir: {pages_dir}")
+    print(f"  Cache dir: {cache_dir}")
+
+    count = run_ner_for_pages(
+        pages_dir=pages_dir,
+        cache_dir=cache_dir,
+        overwrite=overwrite,
+    )
+    print(f"[green]Processed {count} files[/green]")
 
 
 @app.command()

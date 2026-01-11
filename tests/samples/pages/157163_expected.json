@@ -1,61 +1,102 @@
 {
   "note_id": "157163",
-  "expected_people": [
-    {
-      "name_pattern": "Дягилев",
-      "is_person": true,
-      "min_confidence": 0.7
-    },
-    {
-      "name_pattern": "Нижинск",
-      "is_person": true,
-      "min_confidence": 0.9
-    },
-    {
-      "name_pattern": "Альфонсо",
-      "is_person": true,
-      "min_confidence": 0.6
-    },
-    {
-      "name_pattern": "Григорьев",
-      "is_person": true,
-      "min_confidence": 0.5
-    },
-    {
-      "name_pattern": "Чаплин",
-      "is_person": true,
-      "min_confidence": 0.8
-    },
-    {
-      "name_pattern": "Ларионов",
-      "is_person": true,
-      "min_confidence": 0.7
-    },
-    {
-      "name_pattern": "Томилин",
-      "is_person": true,
-      "min_confidence": 0.6
-    },
-    {
-      "name_pattern": "Пёрвиенс|Первиенс",
-      "is_person": true,
-      "min_confidence": 0.5
-    },
-    {
-      "name_pattern": "Кэмпбелл",
-      "is_person": true,
-      "min_confidence": 0.5
-    },
-    {
-      "name_pattern": "Мино",
-      "is_person": true,
-      "min_confidence": 0.5
-    },
-    {
-      "name_pattern": "Лопухов",
-      "is_person": true,
-      "min_confidence": 0.5
-    }
-  ],
-  "forbidden_patterns": []
+  "stage1_candidates": {
+    "expected": [
+      {"name": "Дягилева", "is_person": true},
+      {"name": "А.К. Томилиной", "is_person": true},
+      {"name": "М.Ф. Ларионова", "is_person": true},
+      {"name": "Вацлав Нижинский", "is_person": true},
+      {"name": "Нижинского", "is_person": true},
+      {"name": "Альфонсо XIII", "is_person": true},
+      {"name": "Григорьев", "is_person": true},
+      {"name": "Чарли Чаплином", "is_person": true},
+      {"name": "Чаплин", "is_person": true},
+      {"name": "Э. Пёрвиенс", "is_person": true},
+      {"name": "Э. Кэмпбелла", "is_person": true},
+      {"name": "Ш. Мино", "is_person": true},
+      {"name": "Л. Лопуховой", "is_person": true}
+    ],
+    "forbidden": [
+      {"name_pattern": "Русского балета", "reason": "company_name"},
+      {"name_pattern": "Тихая улица", "reason": "movie_title"},
+      {"name_pattern": "Нью-Йорк", "reason": "location"},
+      {"name_pattern": "Будапеште?", "reason": "location"},
+      {"name_pattern": "Третьяковской галереи", "reason": "organization"},
+      {"name_pattern": "Фавна?", "reason": "character_name"}
+    ]
+  },
+  "final_people": {
+    "expected": [
+      {
+        "name_pattern": "Дягилев",
+        "is_person": true,
+        "min_confidence": 0.7,
+        "comment": "Антрепренёр труппы"
+      },
+      {
+        "name_pattern": "Нижинск",
+        "is_person": true,
+        "min_confidence": 0.8,
+        "comment": "Главный танцовщик"
+      },
+      {
+        "name_pattern": "Альфонсо",
+        "is_person": true,
+        "min_confidence": 0.6,
+        "comment": "Испанский король"
+      },
+      {
+        "name_pattern": "Григорьев",
+        "is_person": true,
+        "min_confidence": 0.5,
+        "comment": "Режиссёр балетов"
+      },
+      {
+        "name_pattern": "Чаплин",
+        "is_person": true,
+        "min_confidence": 0.8,
+        "comment": "Американский актёр"
+      },
+      {
+        "name_pattern": "Ларионов",
+        "is_person": true,
+        "min_confidence": 0.7,
+        "comment": "Художник, автор рисунков"
+      },
+      {
+        "name_pattern": "Томилин",
+        "is_person": true,
+        "min_confidence": 0.6,
+        "comment": "Жена Ларионова, источник поступления"
+      },
+      {
+        "name_pattern": "Пёрвиенс|Первиенс|Пэрвиенс",
+        "is_person": true,
+        "min_confidence": 0.5,
+        "comment": "Актриса на фото"
+      },
+      {
+        "name_pattern": "Кэмпбелл",
+        "is_person": true,
+        "min_confidence": 0.5,
+        "comment": "Актёр на фото"
+      },
+      {
+        "name_pattern": "Мино",
+        "is_person": true,
+        "min_confidence": 0.5,
+        "comment": "На фото"
+      },
+      {
+        "name_pattern": "Лопухов",
+        "is_person": true,
+        "min_confidence": 0.5,
+        "comment": "Балерина на фото"
+      }
+    ],
+    "forbidden_patterns": [
+      "Русского балета",
+      "Тихая улица"
+    ]
+  }
 }

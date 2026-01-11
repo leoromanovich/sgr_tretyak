@@ -1,21 +1,44 @@
 {
   "note_id": "8331",
-  "expected_people": [
-    {
-      "name_pattern": "Корин|Павл",
-      "is_person": true,
-      "min_confidence": 0.8
-    },
-    {
-      "name_pattern": "[Пп]атриарх.*Тихон|Тихон",
-      "is_person": true,
-      "min_confidence": 0.8
-    },
-    {
-      "name_pattern": "Е\\.В\\.\\s*Вучетич",
-      "is_person": true,
-      "min_confidence": 0.8
-    }
-  ],
-  "forbidden_patterns": []
+  "stage1_candidates": {
+    "expected": [
+      {"name": "Корин Павел", "is_person": true},
+      {"name": "Е.В. Вучетича", "is_person": true},
+      {"name": "Павла Корина", "is_person": true},
+      {"name": "патриарха Тихона", "is_person": true},
+      {"name": "П.Д. Корин", "is_person": true},
+      {"name": "Павел Дмитриевич", "is_person": true},
+      {"name": "Павел Корин", "is_person": true},
+      {"name": "Корин", "is_person": true}
+    ],
+    "forbidden": [
+      {"name_pattern": "Московском Кремле", "reason": "location"},
+      {"name_pattern": "Успенского собора", "reason": "location"},
+      {"name_pattern": "Реквием", "reason": "artwork_title"},
+      {"name_pattern": "Русь уходящая", "reason": "artwork_title"}
+    ]
+  },
+  "final_people": {
+    "expected": [
+      {
+        "name_pattern": "Корин|Павл",
+        "is_person": true,
+        "min_confidence": 0.8,
+        "comment": "Главный персонаж - художник"
+      },
+      {
+        "name_pattern": "[Пп]атриарх.*Тихон|Тихон",
+        "is_person": true,
+        "min_confidence": 0.7,
+        "comment": "Упомянут в контексте похорон"
+      },
+      {
+        "name_pattern": "Е\\.?В\\.?\\s*Вучетич",
+        "is_person": true,
+        "min_confidence": 0.6,
+        "comment": "В названии комбината"
+      }
+    ],
+    "forbidden_patterns": []
+  }
 }

@@ -1,23 +1,114 @@
 {
-  "candidates": [
-    { "index": 0, "name": "Корин Павел", "is_person": true },
-    { "index": 1, "name": "А.В. Щусевым", "is_person": true },
-    { "index": 2, "name": "В.Д. Кокориным", "is_person": true },
-    { "index": 3, "name": "А.Ю. Заболотной", "is_person": true },
-    { "index": 4, "name": "В.С. Варваниным", "is_person": true },
-    { "index": 5, "name": "П.Д. Корина", "is_person": true },
-    { "index": 6, "name": "П.Д. Корин", "is_person": true },
-    { "index": 7, "name": "И.В. Сталина", "is_person": true },
-    { "index": 8, "name": "Александра Невского", "is_person": true },
-    { "index": 9, "name": "Димитрия Донского", "is_person": true },
-    { "index": 10, "name": "Кузьмы Минина", "is_person": true },
-    { "index": 11, "name": "Димитрия Пожарского", "is_person": true },
-    { "index": 12, "name": "Александра Суворова", "is_person": true },
-    { "index": 13, "name": "Михаила Кутузова", "is_person": true },
-    { "index": 14, "name": "Ленина", "is_person": true },
-    { "index": 15, "name": "И.В. Сталина", "is_person": true },
-    { "index": 16, "name": "В.И. Ленина", "is_person": true },
-    { "index": 17, "name": "И.В. Сталина", "is_person": true },
-    { "index": 18, "name": "В.И. Ленина", "is_person": true }
-  ]
+  "note_id": "8360",
+  "stage1_candidates": {
+    "expected": [
+      {"name": "Корин Павел", "is_person": true},
+      {"name": "А.В. Щусевым", "is_person": true},
+      {"name": "В.Д. Кокориным", "is_person": true},
+      {"name": "А.Ю. Заболотной", "is_person": true},
+      {"name": "В.С. Варваниным", "is_person": true},
+      {"name": "П.Д. Корина", "is_person": true},
+      {"name": "П.Д. Корин", "is_person": true},
+      {"name": "И.В. Сталина", "is_person": true},
+      {"name": "Александра Невского", "is_person": true},
+      {"name": "Димитрия Донского", "is_person": true},
+      {"name": "Кузьмы Минина", "is_person": true},
+      {"name": "Димитрия Пожарского", "is_person": true},
+      {"name": "Александра Суворова", "is_person": true},
+      {"name": "Михаила Кутузова", "is_person": true},
+      {"name": "Ленина", "is_person": true},
+      {"name": "В.И. Ленина", "is_person": true}
+    ],
+    "forbidden": [
+      {"name_pattern": "Комсомольская", "reason": "metro_station"},
+      {"name_pattern": "Рейхстаг", "reason": "building"},
+      {"name_pattern": "Московского метрополитена", "reason": "organization"}
+    ]
+  },
+  "final_people": {
+    "expected": [
+      {
+        "name_pattern": "Корин|Павел",
+        "is_person": true,
+        "min_confidence": 0.8,
+        "comment": "Художник, автор мозаик"
+      },
+      {
+        "name_pattern": "Щусев",
+        "is_person": true,
+        "min_confidence": 0.7,
+        "comment": "Архитектор станции"
+      },
+      {
+        "name_pattern": "Кокорин",
+        "is_person": true,
+        "min_confidence": 0.6,
+        "comment": "Архитектор"
+      },
+      {
+        "name_pattern": "Заболотн",
+        "is_person": true,
+        "min_confidence": 0.6,
+        "comment": "Архитектор"
+      },
+      {
+        "name_pattern": "Варванин",
+        "is_person": true,
+        "min_confidence": 0.6,
+        "comment": "Архитектор"
+      },
+      {
+        "name_pattern": "Сталин",
+        "is_person": true,
+        "min_confidence": 0.7,
+        "comment": "Упомянут в контексте речи и медальона"
+      },
+      {
+        "name_pattern": "Ленин",
+        "is_person": true,
+        "min_confidence": 0.7,
+        "comment": "Упомянут в речи и медальоне"
+      },
+      {
+        "name_pattern": "Александр.*Невск",
+        "is_person": true,
+        "min_confidence": 0.6,
+        "comment": "Исторический деятель из речи"
+      },
+      {
+        "name_pattern": "Димитри.*Донск",
+        "is_person": true,
+        "min_confidence": 0.6,
+        "comment": "Исторический деятель из речи"
+      },
+      {
+        "name_pattern": "Минин",
+        "is_person": true,
+        "min_confidence": 0.6,
+        "comment": "Исторический деятель из речи"
+      },
+      {
+        "name_pattern": "Пожарск",
+        "is_person": true,
+        "min_confidence": 0.6,
+        "comment": "Исторический деятель из речи"
+      },
+      {
+        "name_pattern": "Суворов",
+        "is_person": true,
+        "min_confidence": 0.6,
+        "comment": "Исторический деятель из речи"
+      },
+      {
+        "name_pattern": "Кутузов",
+        "is_person": true,
+        "min_confidence": 0.6,
+        "comment": "Исторический деятель из речи"
+      }
+    ],
+    "forbidden_patterns": [
+      "Комсомольская",
+      "Рейхстаг"
+    ]
+  }
 }

@@ -350,6 +350,28 @@ class PersonMatchBinaryChoice(BaseModel):
     )
 
 
+# --- Модели для chunked extraction (новый подход) ---
+
+class CandidateWithType(BaseModel):
+    """Один кандидат (имя собственное) с определением типа."""
+    name: str = Field(
+        ...,
+        description="Имя собственное в точной форме из текста",
+    )
+    is_person: bool = Field(
+        ...,
+        description="True если это человек, False если нет",
+    )
+
+
+class CandidateList(BaseModel):
+    """Список всех имён собственных из одного chunk."""
+    candidates: list[CandidateWithType] = Field(
+        default_factory=list,
+        description="Список всех имён собственных с указанием, является ли сущность человеком",
+    )
+
+
 def confidence_to_bucket(confidence: float) -> ConfidenceBucket:
     if confidence >= 0.8:
         return "high"

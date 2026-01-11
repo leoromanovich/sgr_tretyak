@@ -1,0 +1,45 @@
+{
+  "note_id": "0000",
+  "stage1_candidates": {
+    "expected": [
+      {"name": "Корин Павел", "is_person": true},
+      {"name": "Павел Корин", "is_person": true},
+      {"name": "Иваном Ивановым", "is_person": true},
+      {"name": "Виктором Васнецовым", "is_person": true},
+      {"name": "Аполлинарием Васнецовым", "is_person": true}
+    ],
+    "forbidden": [
+      {"name_pattern": "Русь уходящая", "reason": "artwork_title"}
+    ]
+  },
+  "final_people": {
+    "expected": [
+      {
+        "name_pattern": "Корин|Павел",
+        "is_person": true,
+        "min_confidence": 0.8,
+        "comment": "Главный персонаж - автор"
+      },
+      {
+        "name_pattern": "Иван Иванов",
+        "is_person": true,
+        "min_confidence": 0.8,
+        "comment": "Им вдохновлялся автор"
+      },
+      {
+        "name_pattern": "Виктор Васнецов",
+        "is_person": true,
+        "min_confidence": 0.8,
+        "comment": "Им вдохновлялся автор"
+      },
+      {
+        "name_pattern": "Аполлинарий Васнецов",
+        "is_person": true,
+        "min_confidence": 0.8,
+        "comment": "Им вдохновлялся автор"
+      }
+    ],
+    "forbidden_patterns": []
+  }
+}
+

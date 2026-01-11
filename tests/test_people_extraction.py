@@ -44,17 +44,35 @@ class ExpectedResult:
 def load_expected(json_path: Path) -> ExpectedResult:
     """Load expected results from JSON file."""
     data = json.loads(json_path.read_text())
-    return ExpectedResult(
-        note_id=data["note_id"],
-        expected_people=[
+
+    # Поддержка нового формата с final_people
+    if "final_people" in data:
+        final_data = data["final_people"]
+        expected_people = [
             ExpectedPerson(
                 name_pattern=p["name_pattern"],
                 is_person=p["is_person"],
                 min_confidence=p.get("min_confidence", 0.0),
             )
-            for p in data["expected_people"]
-        ],
-        forbidden_patterns=data.get("forbidden_patterns", []),
+            for p in final_data.get("expected", [])
+        ]
+        forbidden_patterns = final_data.get("forbidden_patterns", [])
+    else:
+        # Старый формат для обратной совместимости
+        expected_people = [
+            ExpectedPerson(
+                name_pattern=p["name_pattern"],
+                is_person=p["is_person"],
+                min_confidence=p.get("min_confidence", 0.0),
+            )
+            for p in data.get("expected_people", [])
+        ]
+        forbidden_patterns = data.get("forbidden_patterns", [])
+
+    return ExpectedResult(
+        note_id=data["note_id"],
+        expected_people=expected_people,
+        forbidden_patterns=forbidden_patterns,
     )
 
 

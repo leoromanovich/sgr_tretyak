@@ -17,9 +17,13 @@ from ..models import (
     PersonSnippetEvidence,
 )
 from .note_metadata import extract_note_metadata_from_file, extract_note_metadata_from_file_async
-from ..llm_prompts import add_no_think
 from .validation import validate_and_fix_extraction
-from .mention_extractor import extract_mentions_async, extract_mentions
+from .mention_extractor import (
+    extract_mentions_async,
+    extract_mentions,
+    extract_mentions_chunked_async,
+    extract_mentions_chunked,
+)
 from .mention_grouper import group_mentions_async, group_mentions
 from .pipeline_trace import log_pipeline_stage
 
@@ -124,9 +128,14 @@ async def extract_people_from_text_async(
     metadata: NoteMetadata,
     validate: bool = True,
     two_pass: bool = True,
+    chunked: bool = True,
 ) -> PersonExtractionResponse:
     """
     Async-вызов people extractor. По умолчанию использует двухпроходную схему.
+
+    Args:
+        chunked: использует подход с разбиением на chunks (по умолчанию True).
+                 Работает только при two_pass=True.
     """
     if two_pass:
         return await extract_people_two_pass_async(
@@ -134,6 +143,7 @@ async def extract_people_from_text_async(
             text=text,
             metadata=metadata,
             validate=validate,
+            chunked=chunked,
         )
 
     messages = _build_people_messages(note_id, text, metadata)
@@ -165,9 +175,14 @@ def extract_people_from_text(
     metadata: NoteMetadata,
     validate: bool = True,
     two_pass: bool = True,
+    chunked: bool = True,
 ) -> PersonExtractionResponse:
     """
     Синхронная версия people extractor с двухпроходной схемой по умолчанию.
+
+    Args:
+        chunked: использует подход с разбиением на chunks (по умолчанию True).
+                 Работает только при two_pass=True.
     """
     if two_pass:
         return extract_people_two_pass(
@@ -175,6 +190,7 @@ def extract_people_from_text(
             text=text,
             metadata=metadata,
             validate=validate,
+            chunked=chunked,
         )
 
     messages = _build_people_messages(note_id, text, metadata)
@@ -200,12 +216,19 @@ def extract_people_from_text(
     return response
 
 
-def extract_people_from_file(path: Path, two_pass: bool = True) -> PersonExtractionResponse:
+def extract_people_from_file(
+    path: Path,
+    two_pass: bool = True,
+    chunked: bool = True,
+) -> PersonExtractionResponse:
     """
     Удобный вход: по пути к файлу:
     1) извлекает метаданные заметки,
     2) загружает markdown,
     3) вызывает LLM для извлечения людей.
+
+    Args:
+        chunked: использует подход с разбиением на chunks (по умолчанию True).
     """
     # 1. метаданные (наш предыдущий тул)
     meta_resp: NoteMetadataResponse = extract_note_metadata_from_file(path)
@@ -222,15 +245,20 @@ def extract_people_from_file(path: Path, two_pass: bool = True) -> PersonExtract
         text=body,
         metadata=metadata,
         two_pass=two_pass,
+        chunked=chunked,
     )
 
 
 async def extract_people_from_file_async(
     path: Path,
     two_pass: bool = True,
+    chunked: bool = True,
 ) -> PersonExtractionResponse:
     """
     Async-вариант пайплайна для одной заметки.
+
+    Args:
+        chunked: использует подход с разбиением на chunks (по умолчанию True).
     """
     meta_resp: NoteMetadataResponse = await extract_note_metadata_from_file_async(path)
     metadata = meta_resp.metadata
@@ -244,6 +272,7 @@ async def extract_people_from_file_async(
         text=body,
         metadata=metadata,
         two_pass=two_pass,
+        chunked=chunked,
     )
 
 
@@ -317,11 +346,18 @@ def extract_people_two_pass(
     text: str,
     metadata: NoteMetadata,
     validate: bool = True,
+    chunked: bool = True,
 ) -> PersonExtractionResponse:
     """
     Синхронный двухпроходный people extractor.
+
+    Args:
+        chunked: использует подход с разбиением на chunks (по умолчанию True).
     """
-    mentions_resp = extract_mentions(note_id=note_id, text=text, metadata=metadata)
+    if chunked:
+        mentions_resp = extract_mentions_chunked(note_id=note_id, text=text, metadata=metadata)
+    else:
+        mentions_resp = extract_mentions(note_id=note_id, text=text, metadata=metadata)
     groups_resp = group_mentions(note_id, mentions_resp.mentions, text)
     response = _convert_groups_to_extraction_response(note_id, groups_resp, mentions_resp)
     log_pipeline_stage(note_id, "people_raw", response.model_dump())
@@ -347,11 +383,18 @@ async def extract_people_two_pass_async(
     text: str,
     metadata: NoteMetadata,
     validate: bool = True,
+    chunked: bool = True,
 ) -> PersonExtractionResponse:
     """
     Двухпроходное извлечение: mentions -> grouping -> PersonExtractionResponse.
+
+    Args:
+        chunked: использует подход с разбиением на chunks (по умолчанию True).
     """
-    mentions_resp = await extract_mentions_async(note_id=note_id, text=text, metadata=metadata)
+    if chunked:
+        mentions_resp = await extract_mentions_chunked_async(note_id=note_id, text=text, metadata=metadata)
+    else:
+        mentions_resp = await extract_mentions_async(note_id=note_id, text=text, metadata=metadata)
     groups_resp = await group_mentions_async(note_id, mentions_resp.mentions, text)
     response = _convert_groups_to_extraction_response(note_id, groups_resp, mentions_resp)
     log_pipeline_stage(note_id, "people_raw", response.model_dump())

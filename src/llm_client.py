@@ -10,25 +10,57 @@ from pydantic import BaseModel, ValidationError
 from rich import print as rich_print
 
 from src.config import settings
+from src.llm_prompts import add_no_think
 import logging
 
 logger = logging.getLogger(__name__)
 
+
+def _apply_no_think(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Добавляет /no_think к system prompt для Qwen3 моделей.
+    Работает только для локального провайдера (vLLM с Qwen).
+    """
+    if settings.llm_provider != "local":
+        return messages
+
+    result = []
+    for msg in messages:
+        if msg.get("role") == "system":
+            new_msg = msg.copy()
+            new_msg["content"] = add_no_think(msg["content"])
+            result.append(new_msg)
+        else:
+            result.append(msg)
+    return result
+
 LLM_CONCURRENCY_LIMIT = 32 
 LLM_TIMEOUT_RETRY_DELAY_SECONDS = 2.0
 
+def _get_extra_headers() -> dict[str, str]:
+    """Возвращает дополнительные заголовки для OpenRouter."""
+    if settings.llm_provider == "openrouter":
+        return {
+            "HTTP-Referer": "https://github.com/sgr-tretyak",
+            "X-Title": "SGR Tretyak Pipeline",
+        }
+    return {}
+
+
 client = OpenAI(
-    base_url=settings.openai_base_url,
-    api_key=settings.openai_api_key,
+    base_url=settings.effective_base_url,
+    api_key=settings.effective_api_key,
     timeout=settings.llm_request_timeout,
     max_retries=settings.llm_client_max_retries,
-    )
+    default_headers=_get_extra_headers(),
+)
 async_client = AsyncOpenAI(
-    base_url=settings.openai_base_url,
-    api_key=settings.openai_api_key,
+    base_url=settings.effective_base_url,
+    api_key=settings.effective_api_key,
     timeout=settings.llm_request_timeout,
     max_retries=settings.llm_client_max_retries,
-    )
+    default_headers=_get_extra_headers(),
+)
 _llm_semaphore = asyncio.Semaphore(LLM_CONCURRENCY_LIMIT)
 
 T = TypeVar("T", bound=BaseModel)
@@ -131,12 +163,18 @@ async def chat_raw_async(
     temperature: float = 0.0,
     max_tokens: Optional[int] = None,
     ) -> Dict[str, Any]:
+    # Применяем /no_think для Qwen3 моделей
+    processed_messages = _apply_no_think(messages)
+
     kwargs: Dict[str, Any] = {
-        "model": settings.model_name,
-        "messages": messages,
+        "model": settings.effective_model,
+        "messages": processed_messages,
         "temperature": temperature,
-        "extra_body": {"reasoning_effort": "low"}
-        }
+    }
+
+    # reasoning_effort только для локальных моделей (vLLM)
+    if settings.llm_provider == "local":
+        kwargs["extra_body"] = {"reasoning_effort": "low"}
 
     if response_format is not None:
         kwargs["response_format"] = response_format
@@ -263,6 +301,16 @@ async def chat_sgr_parse_async(
                             parse_attempts,
                         )
                         continue
+                    if _should_log_failures():
+                        _log_failed_response(
+                            schema_name=schema_name,
+                            messages=messages,
+                            resp=resp,
+                            content=content,
+                            error=last_error,
+                            attempt=attempt,
+                            parse_attempts=parse_attempts,
+                        )
                     raise RuntimeError(last_error)
                 logger.warning(
                     "JSON успешно восстановлен, но данные могут быть неполными"
@@ -276,6 +324,16 @@ async def chat_sgr_parse_async(
                         parse_attempts,
                     )
                     continue
+                if _should_log_failures():
+                    _log_failed_response(
+                        schema_name=schema_name,
+                        messages=messages,
+                        resp=resp,
+                        content=content,
+                        error=last_error,
+                        attempt=attempt,
+                        parse_attempts=parse_attempts,
+                    )
                 raise RuntimeError(last_error)
 
         if _should_trace():
@@ -308,6 +366,16 @@ async def chat_sgr_parse_async(
                     parse_attempts,
                 )
                 continue
+            if _should_log_failures():
+                _log_failed_response(
+                    schema_name=schema_name,
+                    messages=messages,
+                    resp=resp,
+                    content=content,
+                    error=last_error,
+                    attempt=attempt,
+                    parse_attempts=parse_attempts,
+                )
             raise RuntimeError(last_error)
 
     # по идее не должно сюда доходить
@@ -337,6 +405,38 @@ def chat_sgr_parse(
         )
 def _should_trace() -> bool:
     return os.getenv("SGR_LOGGING") == "DEBUG"
+
+
+def _should_log_failures() -> bool:
+    return os.getenv("SGR_LOG_FAILURES") == "1"
+
+
+def _log_failed_response(
+    *,
+    schema_name: str,
+    messages: List[Dict[str, Any]],
+    resp: Dict[str, Any],
+    content: str,
+    error: str,
+    attempt: int,
+    parse_attempts: int,
+) -> None:
+    trace_dir = settings.project_root / "log_tracing" / "failures"
+    trace_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    trace_path = trace_dir / f"{schema_name}_{timestamp}.json"
+    record = {
+        "timestamp": timestamp,
+        "schema_name": schema_name,
+        "attempt": attempt + 1,
+        "max_attempts": parse_attempts,
+        "error": error,
+        "messages": messages,
+        "content": content,
+        "response": resp["raw"].model_dump(),
+    }
+    with open(trace_path, "w", encoding="utf-8") as f:
+        json.dump(record, f, ensure_ascii=False, indent=2, default=str)
 
 
 def _log_timeout_request(payload: Dict[str, Any], attempt: int, timeout_retries: int) -> None:

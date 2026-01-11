@@ -25,9 +25,10 @@ SAMPLE_ENV := PAGES_DIR=$(SAMPLE_PAGES_DIR) \
 		CACHE_DIR=$(SAMPLE_CACHE_DIR) \
 		SGR_LOGGING=DEBUG
 
-.PHONY: run_full run_sample
+.PHONY: run_full run_sample validate_sample validate_sample_verbose
 
 run_full:
+	$(CLI) ner-extract
 	$(CLI) scan-people $(SCAN_PEOPLE_ARGS) --workers $(WORKERS)
 	$(CLI) cluster --match-workers $(MATCH_WORKERS)
 	$(CLI) gen-person-notes
@@ -36,6 +37,7 @@ run_full:
 run_sample:
 	rm -rf $(SAMPLE_CACHE_DIR) $(SAMPLE_OBSIDIAN_DIR)
 	mkdir -p $(SAMPLE_OBSIDIAN_DIR)/persons $(SAMPLE_OBSIDIAN_DIR)/items $(SAMPLE_IMAGES_DEST)
+	$(SAMPLE_ENV) $(CLI) ner-extract
 	$(SAMPLE_ENV) $(CLI) scan-people --overwrite --workers $(WORKERS)
 	$(SAMPLE_ENV) $(CLI) cluster --match-workers $(MATCH_WORKERS)
 	$(SAMPLE_ENV) $(CLI) gen-person-notes
@@ -44,3 +46,9 @@ run_sample:
 		--pages-dir $(SAMPLE_PAGES_DIR) \
 		--source-images-dir $(SAMPLE_IMAGES_SRC) \
 		--dest-images-dir $(SAMPLE_IMAGES_DEST)
+
+validate_sample:
+	$(PYTHON) scripts/validate_pipeline.py --samples-dir tests/samples/pages
+
+validate_sample_verbose:
+	$(PYTHON) scripts/validate_pipeline.py --samples-dir tests/samples/pages --verbose
