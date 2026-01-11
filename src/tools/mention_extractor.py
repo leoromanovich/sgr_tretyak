@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional
 import json
 import logging
 
+from ..config import settings
 from ..llm_client import chat_sgr_parse, chat_sgr_parse_async
 from ..models import (
     CandidateList,
@@ -69,6 +70,8 @@ SYSTEM_PROMPT_MENTIONS = """
 - Максимум 50 упоминаний на весь текст
 - КАЖДОЕ упоминание должно иметь УНИКАЛЬНЫЙ context_snippet
 - Если одно имя встречается много раз, выбери 2-3 РАЗНЫХ контекста
+- НЕ ПОВТОРЯЙ одни и те же упоминания с разными mention_id!
+- Если ты уже добавил упоминание, НЕ ДОБАВЛЯЙ его снова!
 
 Для каждого упоминания:
 1. text_span — ТОЧНАЯ строка из текста, БУКВА В БУКВУ как написано (включая падеж!)
@@ -154,8 +157,9 @@ async def extract_mentions_async(
         messages=messages,
         model_cls=MentionExtractionResponse,
         schema_name="mention_extraction",
-        temperature=0.0,
+        temperature=0.2,  # Выше 0 для избежания петель
         max_tokens=8192,
+        frequency_penalty=0.5,  # Штрафуем повторения
     )
 
     # Гарантируем, что note_id всегда указан
@@ -179,8 +183,9 @@ def extract_mentions(
         messages=messages,
         model_cls=MentionExtractionResponse,
         schema_name="mention_extraction",
-        temperature=0.0,
+        temperature=0.2,  # Выше 0 для избежания петель
         max_tokens=8192,
+        frequency_penalty=0.5,  # Штрафуем повторения
     )
     if not response.note_id:
         response.note_id = note_id
@@ -238,8 +243,9 @@ async def extract_candidates_from_chunk_async(chunk: str) -> List[CandidateWithT
         messages=messages,
         model_cls=CandidateList,
         schema_name="candidate_list",
-        temperature=0.0,
+        temperature=0.2,
         max_tokens=4096,
+        frequency_penalty=0.5,
     )
     return response.candidates
 
@@ -254,8 +260,9 @@ def extract_candidates_from_chunk(chunk: str) -> List[CandidateWithType]:
         messages=messages,
         model_cls=CandidateList,
         schema_name="candidate_list",
-        temperature=0.0,
+        temperature=0.2,
         max_tokens=4096,
+        frequency_penalty=0.5,
     )
     return response.candidates
 
@@ -272,6 +279,7 @@ def _candidates_to_mentions(
         mention = PersonMention(
             mention_id=f"m{idx + 1}",
             text_span=candidate.name,
+            start_char=None,
             context_snippet=f"Извлечено из chunked extraction",
             likely_person=candidate.is_person,
             inline_year=None,
@@ -283,31 +291,56 @@ def _candidates_to_mentions(
 def _merge_ner_candidates(
     llm_candidates: Dict[str, CandidateWithType],
     ner_predictions: List[NERPrediction],
+    ner_min_length: int = 4,
+    ner_min_score: float = 0.90,
 ) -> Dict[str, CandidateWithType]:
     """
-    Добавляет NER-кандидатов к LLM-кандидатам.
+    Добавляет NER-кандидатов к LLM-кандидатам с агрессивной фильтрацией.
 
-    NER-кандидаты добавляются только если их ещё нет в списке LLM.
+    NER-кандидаты добавляются только если:
+    1. Их ещё нет в списке LLM
+    2. Длина >= ner_min_length (по умолчанию 4, чтобы отсечь "ов", "Иван" и т.п.)
+    3. Score >= ner_min_score (по умолчанию 0.90, чтобы отсечь ненадежные)
+
     NER даёт is_person=True для FIRST_NAME, LAST_NAME, MIDDLE_NAME.
 
     Args:
         llm_candidates: Кандидаты от LLM
         ner_predictions: Предсказания NER модели
+        ner_min_length: Минимальная длина имени из NER (по умолчанию 4)
+        ner_min_score: Минимальный score NER (по умолчанию 0.90)
 
     Returns:
         Объединённый словарь кандидатов
     """
     merged = dict(llm_candidates)
-    ner_names = extract_person_names_from_ner(ner_predictions)
+    # Используем агрессивные параметры фильтрации для NER
+    ner_names = extract_person_names_from_ner(
+        ner_predictions,
+        min_length=ner_min_length,
+        min_score=ner_min_score,
+    )
 
     added_from_ner = 0
+    skipped_from_ner = 0
     for name in ner_names:
         if name not in merged:
+            # Дополнительная проверка: не добавляем слишком короткие имена
+            if len(name) < ner_min_length:
+                skipped_from_ner += 1
+                continue
             merged[name] = CandidateWithType(name=name, is_person=True)
             added_from_ner += 1
+        else:
+            skipped_from_ner += 1
 
-    if added_from_ner > 0:
-        logger.debug("Added %d candidates from NER (total: %d)", added_from_ner, len(merged))
+    if added_from_ner > 0 or skipped_from_ner > 0:
+        logger.debug(
+            "NER merge: added %d, skipped %d, total %d",
+            added_from_ner,
+            skipped_from_ner,
+            len(merged),
+        )
 
     return merged
 
@@ -351,8 +384,11 @@ async def extract_mentions_chunked_async(
             if candidate.name not in all_candidates:
                 all_candidates[candidate.name] = candidate
 
-    # Мёржим с NER кандидатами
-    all_candidates = _merge_ner_candidates(all_candidates, ner_predictions)
+    # Мёржим с NER кандидатами (если включено)
+    if settings.enable_ner_merge:
+        all_candidates = _merge_ner_candidates(all_candidates, ner_predictions)
+    else:
+        logger.debug("NER merge disabled by config (enable_ner_merge=False)")
 
     # Конвертируем в mentions
     mentions = _candidates_to_mentions(all_candidates, note_id)
@@ -399,8 +435,11 @@ def extract_mentions_chunked(
             if candidate.name not in all_candidates:
                 all_candidates[candidate.name] = candidate
 
-    # Мёржим с NER кандидатами
-    all_candidates = _merge_ner_candidates(all_candidates, ner_predictions)
+    # Мёржим с NER кандидатами (если включено)
+    if settings.enable_ner_merge:
+        all_candidates = _merge_ner_candidates(all_candidates, ner_predictions)
+    else:
+        logger.debug("NER merge disabled by config (enable_ner_merge=False)")
 
     mentions = _candidates_to_mentions(all_candidates, note_id)
 

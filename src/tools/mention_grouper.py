@@ -21,6 +21,8 @@ SYSTEM_PROMPT_GROUPING = """
 - Каждая группа = ОДИН конкретный человек!
 - РАЗНЫЕ люди = РАЗНЫЕ группы, даже если они упоминаются рядом!
 - НЕ объединяй людей только потому, что они упоминаются в одном контексте!
+- НЕ ПОВТОРЯЙ одни и те же группы с разными group_id!
+- Каждый mention_id должен встречаться ТОЛЬКО В ОДНОЙ группе!
 
 ПРАВИЛА ГРУППИРОВКИ:
 1. ОБЪЕДИНЯЙ только если это ТОЧНО один и тот же человек:
@@ -106,8 +108,9 @@ async def group_mentions_async(
         messages=messages,
         model_cls=MentionGroupingResponse,
         schema_name="mention_grouping",
-        temperature=0.0,
+        temperature=0.2,  # Выше 0 для избежания петель
         max_tokens=8192,
+        frequency_penalty=0.5,  # Штрафуем повторения
     )
 
     if not response.note_id:
@@ -141,8 +144,9 @@ def group_mentions(
         messages=messages,
         model_cls=MentionGroupingResponse,
         schema_name="mention_grouping",
-        temperature=0.0,
+        temperature=0.2,  # Выше 0 для избежания петель
         max_tokens=8192,
+        frequency_penalty=0.5,  # Штрафуем повторения
     )
 
     if not response.note_id:

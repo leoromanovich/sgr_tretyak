@@ -15,7 +15,7 @@ blocking:
   keys:
     last_name_first_initial: true
     last_name_patronymic_initial: true
-    last_name_year_bucket: true
+    last_name_year_bucket: false  # Отключено: годы ненадежны для матчинга
     last_name_first_name: true
 
 embedding:
@@ -27,5 +27,5 @@ embedding:
   cache_path: "embeddings"
 
 matching:
-  max_year_diff: 25
+  max_year_diff: 0  # Отключено: не используем годы для фильтрации
   min_pair_score: 1.5

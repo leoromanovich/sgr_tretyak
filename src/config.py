@@ -1,5 +1,3 @@
-from pydantic_settings import BaseSettings
-from pydantic import ConfigDict
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pathlib import Path
 
@@ -22,6 +20,10 @@ class Settings(BaseSettings):
     llm_request_timeout: float = 120.0
     llm_client_max_retries: int = 2
     llm_timeout_retries: int = 2
+
+    # Feature flags
+    enable_year_extraction: bool = False
+    enable_ner_merge: bool = True  # Добавлять ли NER кандидатов к LLM кандидатам
 
     @property
     def effective_base_url(self) -> str:

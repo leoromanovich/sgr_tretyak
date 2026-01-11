@@ -87,24 +87,89 @@ def load_ner_from_cache(
         ) from e
 
 
-def extract_person_names_from_ner(predictions: List[NERPrediction]) -> List[str]:
+def _is_valid_person_name(name: str, min_length: int = 2) -> bool:
     """
-    Извлекает уникальные имена людей из NER предсказаний.
+    Проверяет, является ли имя валидным для добавления в кандидаты.
 
-    Возвращает только сущности типа FIRST_NAME, LAST_NAME, MIDDLE_NAME.
+    Фильтрует:
+    - Слишком короткие имена (< min_length символов)
+    - Суффиксы и окончания (ов, ова, ич, ична, ин, ина, евич, евна)
+    - Одиночные буквы или инициалы без точек
+
+    Args:
+        name: Имя для проверки
+        min_length: Минимальная длина имени (по умолчанию 2)
+
+    Returns:
+        True если имя валидно
+    """
+    if not name or len(name) < min_length:
+        return False
+
+    # Фильтруем одиночные буквы (включая кириллицу)
+    if len(name) == 1:
+        return False
+
+    # Фильтруем типичные суффиксы/окончания, которые NER может выделить как отдельные сущности
+    name_lower = name.lower()
+    invalid_suffixes = {
+        "ов", "ова", "овой", "овы", "овых",
+        "ев", "ева", "евой", "евы", "евых",
+        "ин", "ина", "иной", "ины", "иных",
+        "ич", "ичем", "ичу", "ича",
+        "ична", "ичной", "ичны", "ичных",
+        "евич", "евичем", "евичу", "евича",
+        "евна", "евной", "евны", "евных",
+        "ович", "овичем", "овичу", "овича",
+        "овна", "овной", "овны", "овных",
+    }
+
+    if name_lower in invalid_suffixes:
+        return False
+
+    # Фильтруем имена, состоящие только из цифр
+    if name.isdigit():
+        return False
+
+    return True
+
+
+def extract_person_names_from_ner(
+    predictions: List[NERPrediction],
+    min_length: int = 2,
+    min_score: float = 0.85,
+) -> List[str]:
+    """
+    Извлекает уникальные имена людей из NER предсказаний с фильтрацией мусора.
+
+    Возвращает только валидные сущности типа FIRST_NAME, LAST_NAME, MIDDLE_NAME.
 
     Args:
         predictions: Список NER предсказаний
+        min_length: Минимальная длина имени (по умолчанию 2)
+        min_score: Минимальный score NER prediction (по умолчанию 0.85)
 
     Returns:
-        Список уникальных имён (дедуплицированный)
+        Список уникальных валидных имён (дедуплицированный)
     """
     seen = set()
     names = []
     for pred in predictions:
-        if pred.is_person_entity and pred.word not in seen:
+        # Проверяем что это person entity и score достаточно высокий
+        if not pred.is_person_entity:
+            continue
+        if pred.score < min_score:
+            continue
+
+        # Проверяем валидность имени
+        if not _is_valid_person_name(pred.word, min_length=min_length):
+            continue
+
+        # Дедупликация
+        if pred.word not in seen:
             seen.add(pred.word)
             names.append(pred.word)
+
     return names
 
 

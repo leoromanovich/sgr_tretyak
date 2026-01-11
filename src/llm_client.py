@@ -77,6 +77,42 @@ def _run_sync(coro):
         )
 
 
+def detect_repetition_loop(content: str, threshold: int = 3) -> bool:
+    """
+    Определяет, зациклилась ли модель на повторении одного паттерна.
+
+    Проверяет последние N объектов в массиве на идентичность.
+    """
+    if not content or len(content) < 100:
+        return False
+
+    # Ищем последние несколько объектов в массиве
+    # Паттерн: {"mention_id": "m123", ... }, {"mention_id": "m124", ... }
+    import re
+    # Находим все объекты вида {"..."}
+    objects = re.findall(r'\{[^{}]*\}', content[-5000:])  # Смотрим последние 5000 символов
+
+    if len(objects) < threshold * 2:
+        return False
+
+    # Проверяем, что последние N объектов почти идентичны (отличаются только ID)
+    last_objects = objects[-threshold:]
+
+    # Нормализуем объекты, удаляя ID для сравнения
+    normalized = []
+    for obj in last_objects:
+        # Убираем mention_id/group_id и их значения
+        normalized_obj = re.sub(r'"(?:mention_id|group_id)":\s*"[^"]*"', '', obj)
+        normalized.append(normalized_obj)
+
+    # Если все нормализованные объекты идентичны, это петля
+    if len(set(normalized)) == 1 and len(normalized) >= threshold:
+        logger.warning("Обнаружена петля повторений в JSON (последние %d объектов идентичны)", threshold)
+        return True
+
+    return False
+
+
 def detect_truncation(content: str) -> bool:
     """Определяет, был ли JSON обрезан."""
     if not content:
@@ -88,6 +124,11 @@ def detect_truncation(content: str) -> bool:
         return True
     if content.count('[') != content.count(']'):
         return True
+
+    # Также проверяем на петли повторений
+    if detect_repetition_loop(content):
+        return True
+
     return False
 
 
@@ -162,6 +203,7 @@ async def chat_raw_async(
     tool_choice: Optional[str] = None,
     temperature: float = 0.0,
     max_tokens: Optional[int] = None,
+    frequency_penalty: Optional[float] = None,
     ) -> Dict[str, Any]:
     # Применяем /no_think для Qwen3 моделей
     processed_messages = _apply_no_think(messages)
@@ -171,6 +213,10 @@ async def chat_raw_async(
         "messages": processed_messages,
         "temperature": temperature,
     }
+
+    # Добавляем frequency_penalty для борьбы с повторениями
+    if frequency_penalty is not None:
+        kwargs["frequency_penalty"] = frequency_penalty
 
     # reasoning_effort только для локальных моделей (vLLM)
     if settings.llm_provider == "local":
@@ -224,6 +270,7 @@ def chat_raw(
     tool_choice: Optional[str] = None,
     temperature: float = 0.0,
     max_tokens: Optional[int] = None,
+    frequency_penalty: Optional[float] = None,
     ) -> Dict[str, Any]:
     """
     Синхронная обёртка поверх chat_raw_async для обратной совместимости.
@@ -236,6 +283,7 @@ def chat_raw(
             tool_choice=tool_choice,
             temperature=temperature,
             max_tokens=max_tokens,
+            frequency_penalty=frequency_penalty,
             )
         )
 
@@ -247,6 +295,7 @@ async def chat_sgr_parse_async(
     schema: Optional[Dict[str, Any]] = None,
     temperature: float = 0.0,
     max_tokens: Optional[int] = None,
+    frequency_penalty: Optional[float] = None,
     ) -> T:
     """
     Делает вызов LLM с response_format=json_schema и парсит
@@ -275,6 +324,7 @@ async def chat_sgr_parse_async(
             response_format=response_format,
             temperature=temperature,
             max_tokens=max_tokens,
+            frequency_penalty=frequency_penalty,
             )
 
         content = resp["message"].content
@@ -389,6 +439,7 @@ def chat_sgr_parse(
     schema: Optional[Dict[str, Any]] = None,
     temperature: float = 0.0,
     max_tokens: Optional[int] = None,
+    frequency_penalty: Optional[float] = None,
     ) -> T:
     """
     Синхронная обёртка поверх chat_sgr_parse_async.
@@ -401,6 +452,7 @@ def chat_sgr_parse(
             schema=schema,
             temperature=temperature,
             max_tokens=max_tokens,
+            frequency_penalty=frequency_penalty,
             )
         )
 def _should_trace() -> bool:

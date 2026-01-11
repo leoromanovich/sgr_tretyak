@@ -7,6 +7,7 @@ import frontmatter
 
 from ..llm_client import chat_sgr_parse, chat_sgr_parse_async
 from ..models import NoteMetadata, NoteMetadataResponse
+from ..config import settings
 
 
 SYSTEM_PROMPT = """
@@ -46,7 +47,21 @@ def _build_metadata_messages(note_id: str, text: str) -> List[Dict[str, Any]]:
 async def extract_note_metadata_from_text_async(note_id: str, text: str) -> NoteMetadataResponse:
     """
     Вызывает LLM с SGR-схемой и возвращает NoteMetadataResponse.
+    Если enable_year_extraction=False, возвращает пустые метаданные без вызова LLM.
     """
+    if not settings.enable_year_extraction:
+        return NoteMetadataResponse(
+            metadata=NoteMetadata(
+                note_id=note_id,
+                primary_year=None,
+                year_start=None,
+                year_end=None,
+                location=None,
+                topic=None,
+                reliability=0.0,
+            )
+        )
+
     messages = _build_metadata_messages(note_id, text)
     return await chat_sgr_parse_async(
         messages=messages,
@@ -58,6 +73,23 @@ async def extract_note_metadata_from_text_async(note_id: str, text: str) -> Note
 
 
 def extract_note_metadata_from_text(note_id: str, text: str) -> NoteMetadataResponse:
+    """
+    Синхронная версия извлечения метаданных.
+    Если enable_year_extraction=False, возвращает пустые метаданные без вызова LLM.
+    """
+    if not settings.enable_year_extraction:
+        return NoteMetadataResponse(
+            metadata=NoteMetadata(
+                note_id=note_id,
+                primary_year=None,
+                year_start=None,
+                year_end=None,
+                location=None,
+                topic=None,
+                reliability=0.0,
+            )
+        )
+
     return chat_sgr_parse(
         messages=_build_metadata_messages(note_id, text),
         model_cls=NoteMetadataResponse,
